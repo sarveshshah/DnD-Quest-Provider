@@ -1,0 +1,16 @@
+[project]
+name = "dnd-quest-provider"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "chainlit>=2.9.6",
+    "duckdb>=1.4.4",
+    "langchain>=1.2.10",
+    "langchain-google-genai>=4.2.0",
+    "langchain-openai>=1.1.9",
+    "langgraph>=1.0.8",
+    "numpy>=2.4.2",
+    "pandas>=3.0.0",
+]
