@@ -16,8 +16,7 @@ load_dotenv()
 # define model
 model = ChatGoogleGenerativeAI(
     model="gemini-2.5-flash",
-    temperature=0,
-    streaming=True
+    temperature=0
 )
 
 # Create a simple state graph
