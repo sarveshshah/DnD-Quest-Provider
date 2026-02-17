@@ -11,6 +11,7 @@ dependencies = [
     "langchain-google-genai>=4.2.0",
     "langchain-openai>=1.1.9",
     "langgraph>=1.0.8",
+    "npm>=0.1.1",
     "numpy>=2.4.2",
     "pandas>=3.0.0",
 ]
