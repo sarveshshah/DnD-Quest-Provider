@@ -6,3 +6,6 @@ uv.lock
 .vscode
 .DS_Store
 **/.DS_Store
+context.md
+./resources/**
+resources/Handbook.pdf
