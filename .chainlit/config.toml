@@ -168,5 +168,17 @@ default_avatar_file_url = ""
 #     url = "https://github.com/Chainlit/chainlit/issues"
 #     target = "_blank" (default)  # Optional: "_self", "_parent", "_top".
 
+# Override default MUI light theme
+[UI.theme.light.primary]
+main = "#64748b" 
+dark = "#475569"
+light = "#94a3b8"
+
+# Override default MUI dark theme
+[UI.theme.dark.primary]
+main = "#94a3b8" 
+dark = "#64748b"
+light = "#cbd5e1"
+
 [meta]
 generated_by = "2.9.6"

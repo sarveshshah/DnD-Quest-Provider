@@ -48,6 +48,7 @@ class PartyDetails(BaseModel):
 
 class CampaignPlan(BaseModel):
     """The structured facts of the campaign before writing begins."""
+    thought_process: str = Field(description="Briefly explain your reasoning for the antagonist, plot, and locations based on the user's requirements.")
     primary_antagonist: str = Field(description="Name and brief concept of the main boss/villain")
     core_conflict: str = Field(description="One sentence summarizing the main problem")
     plot_points: list[str] = Field(description="3 to 4 major events that will happen in the quest")

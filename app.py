@@ -235,8 +235,8 @@ async def on_message(message: cl.Message):
         if not state["terrain"]: state["terrain"] = "Forest"
         if not state["difficulty"]: state["difficulty"] = "medium"
         
-        msg = cl.Message(content="🎲 *Rolling the dice... orchestrating your campaign across the multiverse!*")
-        await msg.send()
+        # msg = cl.Message(content="🎲 *Rolling the dice... orchestrating your campaign across the multiverse!*")
+        # await msg.send()
         
         initial_graph_state = CampaignState(
             terrain=state["terrain"], 
@@ -251,34 +251,69 @@ async def on_message(message: cl.Message):
         )
         
         try:
-            # Initialize final_state with our starting inputs so nothing is lost
             final_state = initial_graph_state.model_dump(by_alias=True)
             
-            # 1. Start streaming from LangGraph
-            async for output in campaign_generator.astream(initial_graph_state):
+            # 1. The Parent Step: This creates the loading animation and acts as the container!
+            async with cl.Step(name="🎲 Rolling the dice... orchestrating your campaign across the multiverse!") as parent_step:
                 
-                # output is a dictionary where the key is the Node Name
-                for node_name, node_state in output.items():
+                # 2. Start streaming from LangGraph
+                async for output in campaign_generator.astream(initial_graph_state):
                     
-                    # 2. Map each node to a visual Chainlit Step
-                    if node_name == "PlannerNode":
-                        async with cl.Step(name="🗺️ Planning Campaign World") as step:
-                            step.output = "Generated core conflict, plot points, and antagonist."
-                            
-                    elif node_name == "PartyCreationNode":
-                        async with cl.Step(name="⚔️ Assembling the Party") as step:
-                            step.output = "Rolled character sheets, stats, and narrative hooks."
-                            
-                    elif node_name == "NarrativeWriterNode":
-                        async with cl.Step(name="📜 Penning the Epic") as step:
-                            step.output = "Wrote the background, descriptions, and final lore."
-                    
-                    final_state.update(node_state) 
+                    for node_name, node_state in output.items():
+                        
+                        # 3. Child Steps: Pass the parent_id to nest them under the main step
+                        if node_name == "PlannerNode":
+                            async with cl.Step(name="🗺️ Planning Campaign World", parent_id=parent_step.id) as step:
+                                plan = node_state.get('campaign_plan')
+                                if plan:
+                                    # Format the Pydantic object into clean Markdown
+                                    plot_bullets = "\n".join([f"- {p}" for p in plan.plot_points])
+                                    locations_bullets = "\n".join([f"- {l}" for l in plan.key_locations])
+                                    
+                                    clean_markdown = f"""### 🧠 DM's Notes
+_{plan.thought_process}_
+
+**Villain:** {plan.primary_antagonist}
+**Conflict:** {plan.core_conflict}
+
+**Key Locations:**
+{locations_bullets}
+
+**Plot Outline:**
+{plot_bullets}
+
+**Loot:** {plan.loot_concept}
+"""
+                                    step.output = clean_markdown
+                                else:
+                                    step.output = "Thinking..."
+                                
+                        elif node_name == "PartyCreationNode":
+                            async with cl.Step(name="⚔️ Assembling the Party", parent_id=parent_step.id) as step:
+                                party = node_state.get('party_details')
+                                if party:
+                                    party_name = party.get('party_name', 'The Nameless')
+                                    chars = party.get('characters', [])
+                                    
+                                    # Format the dictionary into a clean Markdown list
+                                    char_bullets = "\n".join([f"- **{c.get('name')}**: Level {c.get('level')} {c.get('race')} {c.get('class')}" for c in chars])
+                                    step.output = f"### 📝 Roster Draft: {party_name}\n\n{char_bullets}"
+                                else:
+                                    step.output = "Rolling characters..."
+                                
+                        elif node_name == "NarrativeWriterNode":
+                            async with cl.Step(name="📜 Penning the Epic", parent_id=parent_step.id) as step:
+                                step.output = f"**Drafting Complete.**\n\nTitle chosen: {node_state.get('title')}\n\nReviewing lore and formatting markdown..."
+                        
+                        # Merge the new updates into our running state
+                        final_state.update(node_state) 
             
-            # 4. Once the stream is done, format the fully accumulated state
+            # 4. The Parent Step block ends here, stopping the loading animation automatically.
+            
+            # Format the fully accumulated state
             formatted_output = format_campaign_output(final_state)
             
-            # 5. Save characters to session memory
+            # Save characters to session memory
             if "party_details" in final_state and "characters" in final_state["party_details"]:
                 state["characters"] = final_state["party_details"]["characters"]
                 cl.user_session.set("campaign_params", state)
@@ -286,7 +321,7 @@ async def on_message(message: cl.Message):
             chat_history.append(AIMessage(content="Campaign generated successfully."))
             cl.user_session.set("chat_history", chat_history)
             
-            # 6. Send the final Markdown message
+            # Send the final Markdown message to the main chat
             await cl.Message(content=formatted_output).send()
             
         except Exception as e:
