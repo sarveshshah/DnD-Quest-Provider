@@ -3,23 +3,26 @@ from typing import Optional, Literal
 from pydantic import BaseModel, Field, ConfigDict
 
 from langchain_core.tools import tool, ToolException
-
 from langgraph.graph import StateGraph, START, END
 from langchain_google_genai import ChatGoogleGenerativeAI
-
 from langchain_community.tools import DuckDuckGoSearchResults
 from langchain_community.retrievers import WikipediaRetriever
-
 
 from dotenv import load_dotenv
 load_dotenv()
 
-# define model
+# Define model (Using Gemini 2.5 Pro or your preferred capable model)
 model = ChatGoogleGenerativeAI(
-    model="gemini-2.5-flash",
-    temperature=0
+    model="gemini-2.5-pro",
+    temperature=0.2 # Low temperature for planning and extraction
 )
 
+writer_model = ChatGoogleGenerativeAI(
+    model="gemini-2.5-pro",
+    temperature=0.7 # Higher temperature for creative writing
+)
+
+# --- Schemas ---
 
 class Character(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
@@ -32,143 +35,71 @@ class Character(BaseModel):
     ideals: Optional[str] = Field(default=None, description="Ideals that drive the character")
     bonds: Optional[str] = Field(default=None, description="Important bonds or connections")
     flaws: Optional[str] = Field(default=None, description="Notable flaws")
-    inventory: Optional[str] = Field(default=None, description="Key items or equipment the character carries")
-    weapons: Optional[str] = Field(default=None, description="Primary weapons used by the character")
-    skills: Optional[str] = Field(default=None, description="Notable skills or proficiencies")
+    inventory: Optional[str] = Field(default=None, description="Key items or equipment")
+    weapons: Optional[str] = Field(default=None, description="Primary weapons")
+    skills: Optional[str] = Field(default=None, description="Notable skills")
 
 class PartyDetails(BaseModel):
-    # Party Information
     party_name: str = Field(description="Name of the party")
     party_size: int = Field(description="Number of players in the party", ge=1)
-    party_level: list[dict[str, int]] = Field(
-        default_factory=list,
-        description="List of party members with their levels"
-    )
-    characters: list[Character] = Field(
-        default_factory=list,
-        description=(
-            "Unique character roster with keys like name, race, class, level, personality_traits, ideals, bonds, flaws,"
-            "backstory_hook, inventory, weapons, and skills"
-        )
-    )
+    characters: list[Character] = Field(default_factory=list)
+
+class CampaignPlan(BaseModel):
+    """The structured facts of the campaign before writing begins."""
+    primary_antagonist: str = Field(description="Name and brief concept of the main boss/villain")
+    core_conflict: str = Field(description="One sentence summarizing the main problem")
+    plot_points: list[str] = Field(description="3 to 4 major events that will happen in the quest")
+    key_locations: list[str] = Field(description="Specific areas within the terrain the party will visit")
+    loot_concept: str = Field(description="The general idea for the final reward")
+
+class CampaignContent(BaseModel):
+    """The final generated prose."""
+    title: str = Field(description="Epic campaign title")
+    description: str = Field(description="Exciting campaign description (2-3 paragraphs)")
+    background: str = Field(description="Campaign background story and lore")
+    rewards: str = Field(description="Specific details of the glory and treasure")
 
 class CampaignState(BaseModel):
-    """Campaign State for Dungeons and Dragons Campaign"""
-    title: Optional[str] = Field(default=None, description="Campaign title")
-    description: Optional[str] = Field(default=None, description="Campaign description")
-    background: Optional[str] = Field(default=None, description="Campaign background story")
-    terrain: Optional[Literal["Arctic", "Coast", "Desert", "Forest", "Grassland", "Mountain", "Swamp", "Underdark"]] = Field(
-        default=None,
-        description="Terrain type"
-    )
-    difficulty: Optional[Literal["easy", "medium", "hard", "deadly"]] = Field(
-        default=None,
-        description="Difficulty level"
-    )
-    rewards: Optional[str] = Field(default=None, description="Rewards")
-    requirements: Optional[str] = Field(default=None, description="Player requirements and narrative constraints")
-    roster_locked: bool = Field(default=True, description="Whether existing characters are locked and must be preserved")
+    """The unified state passed through the LangGraph."""
+    # Inputs
+    terrain: Optional[Literal["Arctic", "Coast", "Desert", "Forest", "Grassland", "Mountain", "Swamp", "Underdark"]] = None
+    difficulty: Optional[Literal["easy", "medium", "hard", "deadly"]] = None
+    requirements: Optional[str] = None
+    roster_locked: bool = True
+    
+    # State Accumulators
+    party_details: Optional[PartyDetails] = None
+    campaign_plan: Optional[CampaignPlan] = None
+    
+    # Final Outputs (Expected by app.py)
+    title: Optional[str] = None
+    description: Optional[str] = None
+    background: Optional[str] = None
+    rewards: Optional[str] = None
 
-    party_details: Optional[PartyDetails] = Field(None, description="Details of the party for the campaign")
-
-
-def dungeon_master_agent(state: CampaignState):
-    """Agent function to create a Dungeons and Dragons campaign based on the provided state."""
-
-    party_context = (
-        state.party_details.model_dump_json(indent=2, by_alias=True)
-        if state.party_details
-        else "No party details provided."
-    )
-    search_query = (
-        f"D&D quest ideas for a {state.difficulty or 'medium'} campaign "
-        f"in {state.terrain or 'mixed terrain'}"
-    )
-    search_results = "No external references available."
-    with suppress(ToolException, ValueError, TypeError):
-        search_results = search_internet.invoke({"query": search_query})
-
-    wiki_results = "No Wikipedia references available."
-    with suppress(ToolException, ValueError, TypeError):
-        wiki_results = search_wikipedia.invoke({"query": search_query})
-
-
-
-    prompt = f"""You are a dungeon master for a Dungeons and Dragons game. 
-    Create a Dungeons and Dragons campaign based on the following information:
-
-    Party Details:
-    {party_context}
-
-    Reference Search Results:
-    {search_results}
-
-    Wikipedia References:
-    {wiki_results}
-
-
-
-    Player Requirements:
-    {state.requirements or 'No additional requirements provided.'}
-
-    The campaign should include
-        Campaign Title
-        Campaign Description
-        Campaign Background Story
-        Terrain Type
-        Rewards
-
-    The campaign should be creative and immersive, providing an engaging experience for the players.
-    Respect all player requirements exactly, including named characters and any villain constraints.
-    Return output that matches the CampaignState schema.
-    """
-    structured_llm_response = model.with_structured_output(CampaignState)
-    response = structured_llm_response.invoke(prompt)
-    campaign_state = response if isinstance(response, CampaignState) else CampaignState.model_validate(response)
-
-    if state.party_details and not campaign_state.party_details:
-        campaign_state.party_details = state.party_details
-
-    return campaign_state.model_dump(by_alias=True)
-
+# --- Tools ---
 
 @tool
 def search_internet(query: str) -> str:
-    """Tool function to search the internet for information related to the Dungeons and Dragons campaign."""
-    # Implement internet search logic here (e.g., using an API or web scraping)
+    """Search the internet for D&D campaign inspiration."""
     search_tool = DuckDuckGoSearchResults()
-    results = search_tool.invoke(query)
-    return results
+    return search_tool.invoke(query)
 
 @tool
 def search_wikipedia(query: str) -> str:
-    """Tool function to pull brief references from Wikipedia for inspiration."""
-    retriever = WikipediaRetriever(top_k_results=3, doc_content_chars_max=1200)
+    """Pull brief references from Wikipedia for fantasy inspiration."""
+    retriever = WikipediaRetriever(top_k_results=2, doc_content_chars_max=1000)
     docs = retriever.invoke(query)
     if not docs:
         return "No Wikipedia results found."
+    return "\n\n".join([f"Title: {doc.metadata.get('title', 'Unknown')}\nSummary: {doc.page_content.strip()}" for doc in docs])
 
-    formatted = []
-    for doc in docs:
-        title = doc.metadata.get("title", "Unknown")
-        snippet = doc.page_content.strip()
-        formatted.append(f"Title: {title}\nSummary: {snippet}")
-
-    return "\n\n".join(formatted)
-
-
-
+# --- Helper Functions ---
 
 def _normalize_name(name: str) -> str:
     return name.strip().lower()
 
-
-def _merge_characters(
-    existing: list[Character],
-    generated: list[Character],
-    party_size: int,
-    roster_locked: bool
-) -> list[Character]:
+def _merge_characters(existing: list[Character], generated: list[Character], party_size: int, roster_locked: bool) -> list[Character]:
     merged: list[Character] = []
     seen: set[str] = set()
 
@@ -190,107 +121,143 @@ def _merge_characters(
         merged = merged[:party_size]
 
     while len(merged) < party_size:
-        merged.append(
-            Character(
-                name=f"TBD Adventurer {len(merged) + 1}",
-                race="Unknown",
-                class_name="Adventurer",
-                level=1
-            )
-        )
+        merged.append(Character(name=f"TBD Adventurer {len(merged) + 1}", race="Unknown", class_name="Adventurer", level=1))
 
     return merged
 
-def party_creation_agent(state: CampaignState):
-    """Agent function to create a party for the Dungeons and Dragons campaign."""
+# --- Nodes ---
 
+def planner_node(state: CampaignState):
+    """Node 1: Establishes the facts and structured outline of the campaign."""
+    search_query = f"D&D quest ideas for a {state.difficulty or 'medium'} campaign in {state.terrain or 'mixed terrain'}"
+    
+    with suppress(ToolException, ValueError, TypeError):
+        search_results = search_internet.invoke({"query": search_query})
+    with suppress(ToolException, ValueError, TypeError):
+        wiki_results = search_wikipedia.invoke({"query": search_query})
+
+    prompt = f"""You are a D&D Campaign Architect. Your job is to create a logical, structured outline for a quest.
+    DO NOT write the story yet. Only establish the facts.
+
+    Constraints:
+    - Terrain: {state.terrain}
+    - Difficulty: {state.difficulty}
+    - User Requirements: {state.requirements or 'None'}
+
+    Reference Material:
+    {search_results}
+    {wiki_results}
+
+    Analyze the requirements and create a strict CampaignPlan. Ensure the boss, plot points, and locations make sense together.
+    """
+    structured_llm = model.with_structured_output(CampaignPlan)
+    plan = structured_llm.invoke(prompt)
+    
+    return {"campaign_plan": plan}
+
+def party_creation_node(state: CampaignState):
+    """Node 2: Builds the party based on the campaign plan."""
     party_name = state.party_details.party_name if state.party_details else "Not Provided"
     party_size = state.party_details.party_size if state.party_details else 4
     existing_characters = state.party_details.characters if state.party_details else []
     remaining_slots = max(party_size - len(existing_characters), 0)
-    roster_locked = state.roster_locked if state.roster_locked is not None else True
+    roster_locked = state.roster_locked
 
-    search_queries = [
-        f"D&D unique party composition ideas for {max(remaining_slots, 1)} players",
-        "D&D cool race and class combination ideas",
-        f"fantasy character archetypes for {state.terrain or 'mixed terrain'} settings",
-        "creative D&D backstory hooks for player characters"
-    ]
-    search_blurbs: list[str] = []
-    for query in search_queries:
-        with suppress(ToolException, ValueError, TypeError):
-            results = search_internet.invoke({"query": query})
-            if results:
-                search_blurbs.append(f"Query: {query}\nResults: {results}")
+    plan_context = state.campaign_plan.model_dump_json(indent=2) if state.campaign_plan else "No plan available."
 
-    search_results = "\n\n".join(search_blurbs) if search_blurbs else "No external references available."
+    prompt = f"""You are a D&D Party Architect. Create or fill out a party for this specific campaign plan:
+    {plan_context}
 
-    wiki_query = f"fantasy archetypes and character tropes {state.terrain or ''}".strip()
-    wiki_results = "No Wikipedia references available."
-    with suppress(ToolException, ValueError, TypeError):
-        wiki_results = search_wikipedia.invoke({"query": wiki_query})
-
-
-
-    prompt = f"""Create a party for a Dungeons and Dragons campaign. 
-
-    Use the name {party_name} if provided, otherwise generate a random name for the party. 
-    The party should also include playable characters along with their races and classes.
-    Preserve existing characters and only create {remaining_slots} new characters to reach a total of {party_size}.
-    Existing characters:
+    Party Name: {party_name}
+    Target Size: {party_size}
+    Slots to generate: {remaining_slots}
+    Roster Locked: {roster_locked}
+    User Requirements: {state.requirements or 'None'}
+    
+    Existing Characters (Do not alter if Roster Locked is True):
     {existing_characters}
-    Roster locked: {roster_locked}
-    Use these references when useful:
-    {search_results}
 
-    Wikipedia References:
-    {wiki_results}
-
-
-
-    Player Requirements:
-    {state.requirements or 'No additional requirements provided.'}
-    Party should be creative and interesting, providing a diverse set of characters that are balanced and suitable for the campaign
-    .
-    Each character must be original (do not copy exact characters or names from sources), but may be inspired by themes from references.
-    If the requirements list specific characters, include them exactly and count them toward the party size.
-    Fill the remaining slots with thematically consistent characters.
-    If roster_locked is true, do not change existing characters; only add new ones.
-    Return the roster in `characters` using keys: name, race, class, level, backstory_hook,
-    personality_traits, ideals, bonds, flaws, inventory, weapons, skills.
-    Use Campaign information {state} if needed to create a party that fits well with the campaign setting and difficulty level.
-    Return output that matches the PartyDetails schema.
+    CRITICAL CHARACTER CREATION RULES:
+    1. READ THE USER REQUIREMENTS CAREFULLY. If the user asks to play as specific existing fictional characters, celebrities, or pop-culture icons (e.g., "Luke Skywalker", "Sherlock Holmes"), YOU MUST USE THEIR EXACT NAMES. Do not rename them.
+    2. Adapt these requested characters into the 5e D&D ruleset (e.g., Luke as a Psi Warrior Fighter or Paladin, Sherlock as an Inquisitive Rogue).
+    3. For any remaining empty slots, generate unique, original characters that fit the campaign theme to reach the Target Size of {party_size}.
     """
-    structured_llm_response = model.with_structured_output(PartyDetails)
-    response = structured_llm_response.invoke(prompt)
-    party_details = response if isinstance(response, PartyDetails) else PartyDetails.model_validate(response)
-    party_details.party_name = party_name
-    party_details.party_size = party_size
-    party_details.characters = _merge_characters(
+
+    structured_llm = model.with_structured_output(PartyDetails)
+    new_party_details = structured_llm.invoke(prompt)
+    
+    new_party_details.party_name = party_name
+    new_party_details.party_size = party_size
+    new_party_details.characters = _merge_characters(
         existing_characters,
-        party_details.characters,
+        new_party_details.characters,
         party_size,
         roster_locked
     )
-    return {"party_details": party_details.model_dump(by_alias=True)}
+    
+    return {"party_details": new_party_details.model_dump(by_alias=True)}
 
+def narrative_writer_node(state: CampaignState):
+    """Node 3: Takes the structured facts and writes the final, high-quality Markdown prose."""
+    plan_context = state.campaign_plan.model_dump_json(indent=2) if state.campaign_plan else "No plan available."
+    party_context = state.party_details.model_dump_json(indent=2, by_alias=True) if state.party_details else "No party details."
 
-# Create a state graph for the Dungeons and Dragons campaign generator
+    prompt = f"""You are an elite Dungeon Master and fantasy author. 
+    Your job is to take the following dry Campaign Plan and Party Details, and write the final, evocative campaign prose.
+
+    Campaign Plan (The Facts):
+    {plan_context}
+
+    The Party:
+    {party_context}
+
+    Difficulty: {state.difficulty}
+    Terrain: {state.terrain}
+
+    Guidelines:
+    - Write in an engaging, cinematic style.
+    - The "description" should be thrilling and set the stakes.
+    - The "background" should cover the lore and how the core conflict came to be.
+    - Make sure the prose strictly adheres to the facts in the Campaign Plan. Do not hallucinate new major villains or locations.
+    """
+    
+    # We use the higher temperature model here for better creative writing
+    structured_writer = writer_model.with_structured_output(CampaignContent)
+    content = structured_writer.invoke(prompt)
+    
+    return {
+        "title": content.title,
+        "description": content.description,
+        "background": content.background,
+        "rewards": content.rewards
+    }
+
+# --- Graph Construction ---
+
 campaign_graph = StateGraph(CampaignState)
-campaign_graph.add_node("PartyCreationAgent", party_creation_agent)
-campaign_graph.add_node("DungeonMasterAgent", dungeon_master_agent)
-campaign_graph.add_edge(START, "PartyCreationAgent")
-campaign_graph.add_edge("PartyCreationAgent", "DungeonMasterAgent")
-campaign_graph.add_edge("DungeonMasterAgent", END)   
+
+campaign_graph.add_node("PlannerNode", planner_node)
+campaign_graph.add_node("PartyCreationNode", party_creation_node)
+campaign_graph.add_node("NarrativeWriterNode", narrative_writer_node)
+
+campaign_graph.add_edge(START, "PlannerNode")
+campaign_graph.add_edge("PlannerNode", "PartyCreationNode")
+campaign_graph.add_edge("PartyCreationNode", "NarrativeWriterNode")
+campaign_graph.add_edge("NarrativeWriterNode", END)   
 
 app = campaign_graph.compile()
 
 def main():
     """Test the campaign generator"""
-    initial_state = CampaignState()
+    initial_state = CampaignState(
+        terrain="Mountain",
+        difficulty="hard",
+        requirements="I want a quest involving a stolen dragon egg and a cult of ice monks.",
+        party_details=PartyDetails(party_name="The Frozen Few", party_size=3)
+    )
     final_state = app.invoke(initial_state)
-    print("Generated Dungeons and Dragons Campaign:")
-    print(final_state)
+    print(f"Generated Campaign: {final_state.get('title')}")
+    print("Plan:", final_state.get('campaign_plan'))
 
 if __name__ == "__main__":
     main()

@@ -1,450 +1,262 @@
-
-from typing import Literal, Optional
 import chainlit as cl
-import re
 import json
+from typing import Literal, Optional
+from pydantic import BaseModel, Field
 
-from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_core.tools import tool
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain.agents import create_agent
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.messages import HumanMessage, AIMessage
 
 from dnd import app as campaign_generator, CampaignState, PartyDetails
 
 from dotenv import load_dotenv
 load_dotenv()
 
-# define model
-model = ChatGoogleGenerativeAI(
+# --- Models ---
+extractor_model = ChatGoogleGenerativeAI(
+    model="gemini-2.5-flash", 
+    temperature=0.1 
+)
+
+chat_model = ChatGoogleGenerativeAI(
     model="gemini-2.5-flash",
     temperature=0.7
 )
 
-# Tool to generate D&D campaigns
-@tool
-def generate_campaign(
-    party_name: str,
-    party_size: int,
-    terrain: Literal["Arctic", "Coast", "Desert", "Forest", "Grassland", "Mountain", "Swamp", "Underdark"],
-    difficulty: Literal["easy", "medium", "hard", "deadly"],
-    requirements: Optional[str] = None,
-    existing_characters: Optional[list[dict[str, str | int | list[str] | None]]] = None,
-    roster_locked: bool = True
-) -> str:
-    """
-    Generate a complete Dungeons & Dragons campaign with party and quest details.
+# --- Schemas ---
+class CampaignIntake(BaseModel):
+    party_name: Optional[str] = Field(None, description="Name of the adventuring party")
+    party_size: Optional[int] = Field(None, description="Number of players. CRITICAL: If the user lists specific characters, count them and set this to that number!")
     
-    Args:
-        party_name: Name of the adventuring party
-        party_size: Number of players/people/members in the party (1-10)
-        terrain: The terrain type for the campaign
-        difficulty: Campaign difficulty level
+    # NEW: Force the LLM to translate weird inputs into our strict categories
+    terrain: Optional[str] = Field(None, description="The terrain. MUST map the user's request to the closest option: Arctic, Coast, Desert, Forest, Grassland, Mountain, Swamp, Underdark. (e.g., 'Ocean' maps to 'Coast', 'City' maps to 'Grassland')")
+    difficulty: Optional[str] = Field(None, description="The difficulty. MUST map the user's request to the closest option: easy, medium, hard, deadly. (e.g., '2/10' maps to 'easy', 'impossible' maps to 'deadly')")
     
-    Returns:
-        A complete campaign with party details, title, description, background, and rewards
-    """
-    try:
-        # Create initial state with campaign requirements
-        initial_state = CampaignState(
-            terrain=terrain,
-            difficulty=difficulty,
-            party_details=PartyDetails(
-                party_name=party_name,
-                party_size=party_size,
-                characters=existing_characters or []
-            ),
-            requirements=requirements,
-            roster_locked=roster_locked
-        )
-        
-        # Run the campaign generator
-        result = campaign_generator.invoke(initial_state)
-        
-        # Extract values safely from the result dictionary
-        title = str(result.get('title', 'Epic Adventure'))
-        description = str(result.get('description', 'An exciting adventure awaits!'))
-        background = str(result.get('background', 'The story begins...'))
-        rewards = str(result.get('rewards', 'Glory and treasure!'))
-        
-        # Extract party details
-        party_data = result.get('party_details', {})
-        if isinstance(party_data, dict):
-            actual_party_name = str(party_data.get('party_name', party_name))
-            actual_party_size = int(party_data.get('party_size', party_size))
-            characters = party_data.get('characters', [])
-        else:
-            actual_party_name = party_name
-            actual_party_size = party_size
-            characters = []
-        
-        # Format the output with markdown for richer rendering in Chainlit
-        lines = [
-            f"## 🎲 Campaign: {title}",
-            "",
-            "### 📖 Description",
-            description,
-            "",
-            "### 🌄 Background",
-            background,
-            "",
-            "### 🗺️ Setting",
-            f"- Terrain: {terrain}",
-            f"- Difficulty: {difficulty}",
-            "",
-            "### 🏆 Rewards",
-            rewards,
-            "",
-            f"### ⚔️ Party: {actual_party_name}",
-            f"- Size: {actual_party_size} adventurers",
-        ]
-        
-        # Add character details if available
-        if characters and len(characters) > 0:
-            lines.append("")
-            lines.append("### 👥 Party Members")
-            lines.append("")
-            
-            for i, char in enumerate(characters, 1):
-                if isinstance(char, dict):
-                    name = str(char.get('name', f'Hero {i}'))
-                    race = str(char.get('race', 'Unknown'))
-                    char_class = str(char.get('class', 'Adventurer'))
-                    level = str(char.get('level', '1'))
-                    backstory = str(char.get('backstory_hook', ''))
-                    personality_traits = char.get('personality_traits')
-                    ideals = char.get('ideals')
-                    bonds = char.get('bonds')
-                    flaws = char.get('flaws')
-                    inventory = char.get('inventory')
-                    weapons = char.get('weapons')
-                    skills = char.get('skills')
-                    
-                    lines.append(f"{i}. **{name}**")
-                    lines.append(f"   - Race: {race}")
-                    lines.append(f"   - Class: {char_class}")
-                    lines.append(f"   - Level: {level}")
-                    if backstory and backstory != 'None':
-                        lines.append(f"   - Backstory: {backstory}")
-                    if personality_traits:
-                        lines.append(f"   - Traits: {', '.join(personality_traits)}")
-                    if ideals:
-                        lines.append(f"   - Ideals: {ideals}")
-                    if bonds:
-                        lines.append(f"   - Bonds: {bonds}")
-                    if flaws:
-                        lines.append(f"   - Flaws: {flaws}")
-                    if inventory:
-                        lines.append(f"   - Inventory: {inventory}")
-                    if weapons:
-                        lines.append(f"   - Weapons: {weapons}")
-                    if skills:
-                        lines.append(f"   - Skills: {skills}")
-                    lines.append("")
-        
-        formatted = "\n".join(lines)
-        characters_json = json.dumps(characters, ensure_ascii=True)
-        return f"{formatted}\n\n[[_CHARACTERS_JSON_]]{characters_json}[[/CHARACTERS_JSON]]"
-        
-    except (ValueError, TypeError) as exc:
-        return f"Error generating campaign: {str(exc)}\n\nPlease try again with valid parameters."
+    new_requirements: Optional[str] = Field(None, description="Any new plot, character, or thematic requests")
+    user_confirmed_start: bool = Field(default=False, description="True ONLY if user says 'start', 'randomize the rest', or 'go with it'. FALSE if they just ask to create a campaign or list requirements.")
 
-# Create ReAct agent
-tools = [generate_campaign]
-agent = create_agent(model, tools)
+# --- Prompts ---
+# FIX 2: Explicitly pass history as text to guarantee the model reads it
+EXTRACTOR_PROMPT = ChatPromptTemplate.from_template("""You are a precise data extractor for a D&D Campaign Generator.
+    
+RECENT CONVERSATION HISTORY:
+{chat_history_text}
 
-@cl.on_message
-async def on_message(message: cl.Message):
-    # Check for reset command
-    if message.content.lower().strip() in ['reset', 'start over', 'restart']:
-        cl.user_session.set("campaign_params", {
-            "party_name": None,
-            "party_size": None,
-            "terrain": None,
-            "difficulty": None,
-            "requirements": None,
-            "characters": [],
-            "roster_locked": True
-        })
-        cl.user_session.set("messages", None)
-        await cl.Message(content="✨ Campaign parameters reset! Let's start fresh. What kind of campaign would you like to create?").send()
-        return
-    
-    # Get or initialize campaign parameters in session
-    campaign_params = cl.user_session.get("campaign_params")
-    if campaign_params is None:
-        campaign_params = {
-            "party_name": None,
-            "party_size": None,
-            "terrain": None,
-            "difficulty": None,
-            "requirements": None,
-            "characters": [],
-            "roster_locked": True
-        }
-        cl.user_session.set("campaign_params", campaign_params)
-    
-    # Build dynamic system prompt showing what we already know
-    known_params = []
-    missing_params = []
-    
-    if campaign_params["party_size"]:
-        known_params.append(f"- Party Size: {campaign_params['party_size']} players ✓")
-    else:
-        missing_params.append("party_size")
-    
-    if campaign_params["party_name"]:
-        known_params.append(f"- Party Name: {campaign_params['party_name']} ✓")
-    else:
-        missing_params.append("party_name")
-    
-    if campaign_params["terrain"]:
-        known_params.append(f"- Terrain: {campaign_params['terrain']} ✓")
-    else:
-        missing_params.append("terrain")
-    
-    if campaign_params["difficulty"]:
-        known_params.append(f"- Difficulty: {campaign_params['difficulty']} ✓")
-    else:
-        missing_params.append("difficulty")
+LATEST USER MESSAGE:
+{user_input}
 
-    if campaign_params["requirements"]:
-        known_params.append("- Requirements: Provided ✓")
-    if campaign_params["characters"]:
-        known_params.append(f"- Characters: {len(campaign_params['characters'])} stored ✓")
-    if campaign_params.get("roster_locked") and campaign_params["characters"]:
-        known_params.append("- Roster Locked: Yes ✓")
-    
-    known_info = "\n".join(known_params) if known_params else "None yet"
-    
-    system_prompt = f"""You are a PARAMETER COLLECTOR for a D&D Campaign Generator.
-
-    CURRENT COLLECTED PARAMETERS:
-    {known_info}
-    
-    YOUR ONLY JOB: Extract campaign parameters from user messages and call generate_campaign tool when ready.
-    
-    PARAMETER EXTRACTION RULES:
-    1. party_size: ANY number with people/players/members/characters ("7 people" = 7, "for 5" = 5)
-       - If user lists character names, COUNT them (e.g., "Night King, Jon Snow, Cersei" = 3 minimum)
-    
-    2. party_name: Any group name or theme mentioned ("Game of Thrones", "The Avengers", etc.)
-       - If theme mentioned but no specific name, use the theme as the name
-    
-    3. terrain: Arctic, Coast, Desert, Forest, Grassland, Mountain, Swamp, Underdark
-       - Default to Forest if theme fits or not specified
-    
-    4. difficulty: easy, medium, hard, deadly
-       - Default to medium if not specified
-
-    5. requirements: The full user request text describing constraints, characters, and villain details.
-         - Preserve exact wording when possible; do not paraphrase.
-         - If requirements already exist, append new constraints only when the user adds/changes them.
-    6. characters: If characters are already stored, preserve them and add only new ones when requested.
-    7. roster_locked: If true, existing characters must remain unchanged.
-    
-    CRITICAL RULES:
-    - DO NOT generate campaign content yourself (no quests, characters, stories)
-    - DO NOT ask for parameters that have ✓ - they are already collected
-    - PRESERVE all existing parameters marked with ✓
-    - When you have all required parameters (party_name, party_size, terrain, difficulty, requirements), IMMEDIATELY call generate_campaign tool
-    - Always pass existing_characters if any are stored
-    - Always pass roster_locked flag
-    - If missing parameters, ask for ONLY the missing ones briefly
-    - Use defaults for terrain/difficulty if user wants to proceed
-    
-    EXAMPLES:
-    User: "Create a GoT campaign for 7 people"
-    → Extract: party_size=7, party_name="Game of Thrones Campaign", use defaults
-    → Call generate_campaign immediately
-    
-    User: "7 people named The Warriors"
-    → Extract: party_size=7, party_name="The Warriors"
-    → Call generate_campaign with defaults
-    """
-    
-    # Get or create message history
-    messages = cl.user_session.get("messages")
-    if messages is None:
-        messages = [SystemMessage(content=system_prompt)]
-        cl.user_session.set("messages", messages)
-    else:
-        # Update system message with current state
-        messages[0] = SystemMessage(content=system_prompt)
-    
-    messages.append(HumanMessage(content=message.content))
-    
-    # Pre-process: if user is clearly requesting a campaign and we can infer params, help the agent
-    user_text_lower = message.content.lower()
-    is_campaign_request = any(word in user_text_lower for word in ['create', 'generate', 'make', 'campaign', 'quest'])
-    
-    if is_campaign_request:
-        if not campaign_params["requirements"]:
-            campaign_params["requirements"] = message.content.strip()
-        else:
-            if any(word in user_text_lower for word in ["add", "also", "include", "change", "replace", "swap"]):
-                campaign_params["requirements"] = (
-                    f"{campaign_params['requirements']}\n\nAdditional requirements: {message.content.strip()}"
-                )
-        unlock_keywords = ["change", "replace", "remove", "edit", "redo", "regenerate", "revise", "swap"]
-        if any(word in user_text_lower for word in unlock_keywords):
-            campaign_params["roster_locked"] = False
-        elif campaign_params["characters"]:
-            campaign_params["roster_locked"] = True
-        # Try to extract party_size if not already set
-        if not campaign_params["party_size"]:
-            # Look for numbers with people/players/members
-            size_match = re.search(r'(\d+)\s*(?:people|players?|members?|characters?)', user_text_lower)
-            if size_match:
-                campaign_params["party_size"] = int(size_match.group(1))
-        
-        # If party_name not set and there's a theme, use it
-        if not campaign_params["party_name"]:
-            if 'game of thrones' in user_text_lower or 'got' in user_text_lower or 'westeros' in user_text_lower:
-                campaign_params["party_name"] = "Game of Thrones Campaign"
-            elif 'lord of the rings' in user_text_lower or 'lotr' in user_text_lower:
-                campaign_params["party_name"] = "Middle Earth Campaign"
-        
-        # Apply defaults if campaign is requested and we have at least name + size
-        if campaign_params["party_size"] and campaign_params["party_name"]:
-            if not campaign_params["terrain"]:
-                campaign_params["terrain"] = "Forest"
-            if not campaign_params["difficulty"]:
-                campaign_params["difficulty"] = "Medium"
-            
-            cl.user_session.set("campaign_params", campaign_params)
-            
-            # If we now have all 4, the agent should call the tool immediately
-            # Update the system prompt to reflect this
-            known_params = []
-            for key, val in campaign_params.items():
-                if val:
-                    known_params.append(f"- {key.replace('_', ' ').title()}: {val} ✓")
-            known_info = "\n".join(known_params)
-            
-            # Force the agent to see we have everything
-            messages[0] = SystemMessage(content=f"""You are a PARAMETER COLLECTOR for a D&D Campaign Generator.
-
-CURRENT COLLECTED PARAMETERS:
-{known_info}
-
-ALL PARAMETERS ARE NOW READY! Immediately call the generate_campaign tool with these exact parameters:
-- party_name: "{campaign_params['party_name']}"
-- party_size: {campaign_params['party_size']}
-- terrain: "{campaign_params['terrain']}"
-- difficulty: "{campaign_params['difficulty']}"
-- requirements: {campaign_params['requirements'] or ''}
-- existing_characters: {json.dumps(campaign_params['characters'], ensure_ascii=True)}
-- roster_locked: {str(campaign_params.get('roster_locked', True)).lower()}
-
-DO NOT ask for more information. DO NOT generate content yourself. JUST CALL THE TOOL NOW.
+YOUR JOB:
+1. If the user explicitly provides parameters in their latest message, extract them.
+2. CRITICAL: If the AI suggested parameters in the recent history and the user agrees (e.g. "sounds good", "yes", "do it"), you MUST extract the AI's suggested parameters.
+3. If they ask to randomize, DO NOT extract random values yourself. Leave them null.
+4. user_confirmed_start should be FALSE if the user asks you to "randomize", "suggest", or "pick". It should ONLY be true if they explicitly agree to start, or say a phrase like "just go with it".
 """)
+
+# FIX 3: Force the conversational AI to immediately provide exact suggestions
+CONVERSATIONAL_PROMPT = ChatPromptTemplate.from_messages([
+    ("system", """You are a friendly Dungeon Master assistant helping a player set up a campaign.
     
-    # Invoke the agent
-    response = await agent.ainvoke({"messages": messages})
+    Current collected parameters:
+    {current_state}
     
-    # Check if generate_campaign was called and extract parameters from tool call
-    tool_was_called = False
-    for msg in response["messages"]:
-        if hasattr(msg, 'tool_calls') and msg.tool_calls:
-            for tool_call in msg.tool_calls:
-                if tool_call["name"] == "generate_campaign":
-                    tool_was_called = True
-                    # Update our stored parameters with what was used
-                    args = tool_call["args"]
-                    campaign_params["party_name"] = args.get("party_name")
-                    campaign_params["party_size"] = args.get("party_size")
-                    campaign_params["terrain"] = args.get("terrain")
-                    campaign_params["difficulty"] = args.get("difficulty")
-                    campaign_params["requirements"] = args.get("requirements")
-                    if args.get("existing_characters"):
-                        campaign_params["characters"] = args.get("existing_characters")
-                    if "roster_locked" in args:
-                        campaign_params["roster_locked"] = bool(args.get("roster_locked"))
-                    cl.user_session.set("campaign_params", campaign_params)
+    Missing required parameters:
+    {missing_params}
     
-    # Update message history
-    cl.user_session.set("messages", response["messages"])
+    Acknowledge what the user just told you, and ask for the missing parameters. 
     
-    # If tool was called, just show the campaign output from the tool, skip AI commentary
-    if tool_was_called:
-        # Find the tool message (contains the campaign output)
-        for msg in reversed(response["messages"]):
-            if hasattr(msg, 'type') and msg.type == 'tool':
-                campaign_text = str(msg.content)
-                if "[[_CHARACTERS_JSON_]]" in campaign_text:
-                    rendered, _, tail = campaign_text.partition("[[_CHARACTERS_JSON_]]")
-                    payload, _, _ = tail.partition("[[/CHARACTERS_JSON]]")
-                    if payload.strip():
-                        try:
-                            campaign_params["characters"] = json.loads(payload)
-                            campaign_params["roster_locked"] = True
-                            cl.user_session.set("campaign_params", campaign_params)
-                        except json.JSONDecodeError:
-                            pass
-                    campaign_text = rendered.strip()
-                await cl.Message(content=campaign_text).send()
-                return
+    CRITICAL RULE: If the user asks you to randomize, pick, or suggest, DO NOT ask for permission. Immediately provide EXACTLY 1 clear suggestion for each missing parameter so they can just say "yes".
+    - Terrain suggestions MUST be one of: Arctic, Coast, Desert, Forest, Grassland, Mountain, Swamp, Underdark.
+    - Difficulty suggestions MUST be one of: easy, medium, hard, deadly.
+    """),
+    MessagesPlaceholder(variable_name="chat_history"),
+    ("human", "{user_input}")
+])
+
+# --- Helper Functions ---
+def _coerce_terrain(t_str: str) -> str:
+    valid = ["arctic", "coast", "desert", "forest", "grassland", "mountain", "swamp", "underdark"]
+    t_lower = t_str.lower()
+    return next((v.title() for v in valid if v in t_lower), "Forest")
+
+def _coerce_difficulty(d_str: str) -> str:
+    valid = ["easy", "medium", "hard", "deadly"]
+    d_lower = d_str.lower()
+    return next((v.lower() for v in valid if v in d_lower), "medium")
+
+def format_campaign_output(result: dict) -> str:
+    title = result.get('title', 'Epic Adventure')
+    description = result.get('description', 'An exciting adventure awaits!')
+    background = result.get('background', 'The story begins...')
+    rewards = result.get('rewards', 'Glory and treasure!')
+    terrain = result.get('terrain', 'Unknown')
+    difficulty = result.get('difficulty', 'Unknown')
     
-    # Otherwise, extract the AI's conversational response
-    final_text = ""
-    for msg in reversed(response["messages"]):
-        # Skip tool messages
-        if hasattr(msg, 'type') and msg.type == 'tool':
-            continue
-        # Get AI message content
-        if hasattr(msg, 'content') and msg.content:
-            content = msg.content
-            if isinstance(content, str):
-                final_text = content
-                break
-            elif isinstance(content, list):
-                # Extract text from content blocks
-                texts = []
-                for block in content:
-                    if isinstance(block, dict) and 'text' in block:
-                        texts.append(block['text'])
-                if texts:
-                    final_text = '\n'.join(texts)
-                    break
+    party_data = result.get('party_details', {})
     
-    if final_text:
-        await cl.Message(content=final_text).send()
-    else:
-        await cl.Message(content="Ready to generate your campaign! Just need a bit more info.").send()
+    lines = [
+        f"## 🎲 Campaign: {title}",
+        "",
+        "### 📖 Description",
+        description,
+        "",
+        "### 🌄 Background",
+        background,
+        "",
+        "### 🗺️ Setting",
+        f"- **Terrain:** {terrain.title()}",
+        f"- **Difficulty:** {difficulty.title()}",
+        "",
+        "### 🏆 Rewards",
+        rewards,
+        "",
+    ]
+    
+    if party_data and 'party_name' in party_data:
+        lines.append(f"### ⚔️ Party: {party_data['party_name']} ({party_data.get('party_size', 4)} adventurers)")
+        lines.append("") # Blank line before the roster starts
+        
+        characters = party_data.get('characters', [])
+        for i, char in enumerate(characters, 1):
+            name = char.get('name', f'Hero {i}')
+            race = char.get('race', 'Unknown')
+            char_class = char.get('class', 'Adventurer')
+            level = char.get('level', 1)
+            
+            # Character Header
+            lines.append(f"**{i}. {name}** (Level {level} {race} {char_class})")
+            
+            # Bulleted Traits
+            if char.get('backstory_hook'): 
+                lines.append(f"  * **Hook:** {char['backstory_hook']}")
+            if char.get('weapons'): 
+                lines.append(f"  * **Weapons:** {char['weapons']}")
+            
+            # The Magic Bullet: An empty string here creates a \n\n when joined,
+            # forcing Chainlit to recognize the end of the bulleted list!
+            lines.append("") 
+
+    return "\n".join(lines)
+
+# --- Chainlit App ---
 
 @cl.on_chat_start
 async def on_chat_start():
-    """Welcome message when chat starts"""
-    # Initialize campaign parameters
     cl.user_session.set("campaign_params", {
-        "party_name": None,
-        "party_size": None,
-        "terrain": None,
-        "difficulty": None,
-        "requirements": None,
-        "characters": [],
-        "roster_locked": True
+        "party_name": None, "party_size": None, "terrain": None, 
+        "difficulty": None, "requirements": "", "characters": [], "roster_locked": True
     })
+    cl.user_session.set("chat_history", [])
     
-    welcome_msg = """# 🎲 Welcome to D&D Campaign Generator! ⚔️
+    welcome_msg = """# 🎲 Welcome to the Guild Orchestrator! ⚔️
 
-I'm your Dungeon Master assistant, ready to help you create an epic Dungeons & Dragons campaign!
+I'm your Dungeon Master assistant. Let's build an epic campaign step-by-step.
 
-I'll help you build your campaign step-by-step. Just tell me what you have in mind, and I'll remember all the details as we go!
-
-**What I need:**
-- 🏰 **Party Name**: What's your adventuring group called?
-- 👥 **Party Size**: How many players/people/members?
+**Here is what I need to get started:**
+- 🏰 **Party Name**: What's your group called?
+- 👥 **Party Size**: How many adventurers?
 - 🗺️ **Terrain**: Arctic, Coast, Desert, Forest, Grassland, Mountain, Swamp, or Underdark
-- ⚔️ **Difficulty**: easy, medium, hard, or deadly
+- ⚔️ **Difficulty**: Easy, Medium, Hard, or Deadly
 
-**You can provide details all at once or gradually across multiple messages - I'll remember everything!**
-
-Examples:
-- "Create a campaign for 7 people"
-- "Call them The Westeros Warriors"  
-- "Make it in a Mountain terrain with hard difficulty"
-
-Type 'reset' anytime to start over!
+You can give me all the details at once, ask me to randomize them, or we can figure it out as we go!
 """
     await cl.Message(content=welcome_msg).send()
+
+@cl.on_message
+async def on_message(message: cl.Message):
+    user_text = message.content.strip()
+    chat_history = cl.user_session.get("chat_history", [])
+    
+    if user_text.lower() in ['reset', 'start over', 'restart']:
+        cl.user_session.set("campaign_params", {
+            "party_name": None, "party_size": None, "terrain": None, 
+            "difficulty": None, "requirements": "", "characters": [], "roster_locked": True
+        })
+        cl.user_session.set("chat_history", [])
+        await cl.Message(content="✨ Campaign parameters reset! Let's start fresh.").send()
+        return
+
+    state = cl.user_session.get("campaign_params")
+    
+    # Create the text history for the extractor
+    history_str = "\n".join([f"{'User' if isinstance(m, HumanMessage) else 'AI'}: {m.content}" for m in chat_history[-4:]])
+    if not history_str: history_str = "No previous history."
+
+    extractor = extractor_model.with_structured_output(CampaignIntake)
+    extraction_chain = EXTRACTOR_PROMPT | extractor
+    
+    extracted_data = await extraction_chain.ainvoke({
+        "chat_history_text": history_str,
+        "user_input": user_text
+    })
+    
+    if extracted_data:
+        if extracted_data.party_name: state["party_name"] = extracted_data.party_name
+        if extracted_data.party_size: state["party_size"] = extracted_data.party_size
+        if extracted_data.terrain: state["terrain"] = _coerce_terrain(extracted_data.terrain)
+        if extracted_data.difficulty: state["difficulty"] = _coerce_difficulty(extracted_data.difficulty)
+        if extracted_data.new_requirements:
+            state["requirements"] = f"{state['requirements']} {extracted_data.new_requirements}".strip()
+            
+    cl.user_session.set("campaign_params", state)
+    chat_history.append(HumanMessage(content=user_text))
+    
+    required_keys = ["party_name", "party_size", "terrain", "difficulty"]
+    missing_keys = [k for k in required_keys if not state[k]]
+    
+    # Check if we should trigger generation
+    wants_to_generate = extracted_data.user_confirmed_start if extracted_data else False
+  
+    if not missing_keys or wants_to_generate:
+        # Fallbacks to prevent Pydantic crashes if the user forces generation early
+        if not state["party_name"]: state["party_name"] = "The Nameless Heroes"
+        if not state["party_size"]: state["party_size"] = 4
+        if not state["terrain"]: state["terrain"] = "Forest"
+        if not state["difficulty"]: state["difficulty"] = "medium"
+        
+        msg = cl.Message(content="🎲 *Rolling the dice... orchestrating your campaign across the multiverse!*")
+        await msg.send()
+        
+        initial_graph_state = CampaignState(
+            terrain=state["terrain"], 
+            difficulty=state["difficulty"],
+            requirements=state["requirements"], 
+            roster_locked=state["roster_locked"],
+            party_details=PartyDetails(
+                party_name=state["party_name"], 
+                party_size=state["party_size"],
+                characters=state["characters"]
+            )
+        )
+        
+        try:
+            final_result = await campaign_generator.ainvoke(initial_graph_state)
+            formatted_output = format_campaign_output(final_result)
+            
+            if "party_details" in final_result and "characters" in final_result["party_details"]:
+                state["characters"] = final_result["party_details"]["characters"]
+                cl.user_session.set("campaign_params", state)
+                
+            chat_history.append(AIMessage(content="Campaign generated successfully."))
+            cl.user_session.set("chat_history", chat_history)
+            
+            await cl.Message(content=formatted_output).send()
+            
+        except Exception as e:
+            await cl.Message(content=f"❌ **Error generating campaign:** {str(e)}").send()
+            
+    else:
+        current_state_str = "\n".join([f"- {k.replace('_', ' ').title()}: {v}" for k, v in state.items() if v and k in required_keys])
+        missing_str = ", ".join(missing_keys).replace('_', ' ')
+        
+        response_chain = CONVERSATIONAL_PROMPT | chat_model
+        ai_response = await response_chain.ainvoke({
+            "current_state": current_state_str or "Nothing yet.",
+            "missing_params": missing_str,
+            "chat_history": chat_history[-4:], 
+            "user_input": user_text
+        })
+        
+        chat_history.append(AIMessage(content=ai_response.content))
+        cl.user_session.set("chat_history", chat_history)
+        
+        await cl.Message(content=ai_response.content).send()
