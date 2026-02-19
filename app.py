@@ -32,7 +32,7 @@ class CampaignIntake(BaseModel):
     
     # Force the LLM to translate weird inputs into our strict categories
     terrain: Optional[str] = Field(None, description="The terrain. MUST map the user's request to the closest option: Arctic, Coast, Desert, Forest, Grassland, Mountain, Swamp, Underdark. (e.g., 'Ocean' maps to 'Coast', 'City' maps to 'Grassland')")
-    difficulty: Optional[str] = Field(None, description="The difficulty. MUST map the user's request to the closest option: easy, medium, hard, deadly. (e.g., '2/10' maps to 'easy', 'impossible' maps to 'deadly')")
+    difficulty: Optional[str] = Field(None, description="The difficulty. MUST map the user's request to the closest option: Easy, Medium, Hard, Deadly. (e.g., '2/10' maps to 'Easy', 'impossible' maps to 'Deadly')")
     
     new_requirements: Optional[str] = Field(None, description="Any new plot, character, or thematic requests")
     user_confirmed_start: bool = Field(default=False, description="True ONLY if user says 'start', 'randomize the rest', or 'go with it'. FALSE if they just ask to create a campaign or list requirements.")
@@ -68,7 +68,7 @@ CONVERSATIONAL_PROMPT = ChatPromptTemplate.from_messages([
     
     CRITICAL RULE: If the user asks you to randomize, pick, or suggest, DO NOT ask for permission. Immediately provide EXACTLY 1 clear suggestion for each missing parameter so they can just say "yes".
     - Terrain suggestions MUST be one of: Arctic, Coast, Desert, Forest, Grassland, Mountain, Swamp, Underdark.
-    - Difficulty suggestions MUST be one of: easy, medium, hard, deadly.
+    - Difficulty suggestions MUST be one of: Easy, Medium, Hard, Deadly.
     """),
     MessagesPlaceholder(variable_name="chat_history"),
     ("human", "{user_input}")
@@ -76,14 +76,14 @@ CONVERSATIONAL_PROMPT = ChatPromptTemplate.from_messages([
 
 # --- Helper Functions ---
 def _coerce_terrain(t_str: str) -> str:
-    valid = ["arctic", "coast", "desert", "forest", "grassland", "mountain", "swamp", "underdark"]
-    t_lower = t_str.lower()
-    return next((v.title() for v in valid if v in t_lower), "Forest")
+    valid = ["Arctic", "Coast", "Desert", "Forest", "Grassland", "Mountain", "Swamp", "Underdark"]
+    t_title = t_str.title()
+    return next((v.title() for v in valid if v in t_title), "Forest")
 
 def _coerce_difficulty(d_str: str) -> str:
-    valid = ["easy", "medium", "hard", "deadly"]
-    d_lower = d_str.lower()
-    return next((v.lower() for v in valid if v in d_lower), "medium")
+    valid = ["Easy", "Medium", "Hard", "Deadly"]
+    d_title = d_str.title()
+    return next((v.title() for v in valid if v in d_title), "Medium")
 
 def format_campaign_output(result: dict) -> str:
     title = result.get('title', 'Epic Adventure')
@@ -169,17 +169,18 @@ async def on_chat_start():
     })
     cl.user_session.set("chat_history", [])
     
-    welcome_msg = """# 🎲 Welcome to the Guild Orchestrator! ⚔️
+    welcome_msg = """# 🐉 Welcome to the Guild! 🍻
 
-I'm your Dungeon Master assistant. Let's build an epic campaign step-by-step.
+Pull up a chair by the hearth! I'm your Assistant *to the* Regional Dungeon Master. Let's draft a legendary campaign step-by-step. 
 
-**Here is what I need to get started:**
-- 🏰 **Party Name**: What's your group called?
-- 👥 **Party Size**: How many adventurers?
-- 🗺️ **Terrain**: Arctic, Coast, Desert, Forest, Grassland, Mountain, Swamp, or Underdark
-- ⚔️ **Difficulty**: Easy, Medium, Hard, or Deadly
+**To begin forging your world, I'll need a few details:**
+* 🏰 **Party Name:** What is the title of your adventuring company?
+* 👥 **Party Size:** How many brave souls are at the table?
+* 🗺️ **Terrain:** Where does the journey begin? *(Arctic, Coast, Desert, Forest, Grassland, Mountain, Swamp, or Underdark)*
+* ☠️ **Difficulty:** How perilous is the road ahead? *(Easy, Medium, Hard, or Deadly)*
 
-You can give me all the details at once, ask me to randomize them, or we can figure it out as we go!
+**How to play:**
+You can drop all your details at once ("We are 4 heroes in a deadly swamp called the Mud Dogs"), ask me to randomize the gaps, or simply say **"Start a campaign"** and we will figure it out together as we go!
 """
     await cl.Message(content=welcome_msg).send()
 
@@ -233,7 +234,7 @@ async def on_message(message: cl.Message):
         if not state["party_name"]: state["party_name"] = "The Nameless Heroes"
         if not state["party_size"]: state["party_size"] = 4
         if not state["terrain"]: state["terrain"] = "Forest"
-        if not state["difficulty"]: state["difficulty"] = "medium"
+        if not state["difficulty"]: state["difficulty"] = "Medium"
         
         # msg = cl.Message(content="🎲 *Rolling the dice... orchestrating your campaign across the multiverse!*")
         # await msg.send()
@@ -253,60 +254,75 @@ async def on_message(message: cl.Message):
         try:
             final_state = initial_graph_state.model_dump(by_alias=True)
             
-            # 1. The Parent Step: This creates the loading animation and acts as the container!
-            async with cl.Step(name="🎲 Rolling the dice... orchestrating your campaign across the multiverse!") as parent_step:
+            # 1. Start with an initial "table setting" message
+            async with cl.Step(name="🎲 Preparing the table...") as parent_step:
                 
-                # 2. Start streaming from LangGraph
                 async for output in campaign_generator.astream(initial_graph_state):
                     
                     for node_name, node_state in output.items():
                         
-                        # 3. Child Steps: Pass the parent_id to nest them under the main step
                         if node_name == "PlannerNode":
-                            async with cl.Step(name="🗺️ Planning Campaign World", parent_id=parent_step.id) as step:
+                            parent_step.name = "🗺️ Gathering the miniatures and mapping the realm..."
+                            await parent_step.update()
+                            
+                            # Start with present tense
+                            async with cl.Step(name="Brainstorming the plot...", parent_id=parent_step.id) as step:
                                 plan = node_state.get('campaign_plan')
                                 if plan:
-                                    # Format the Pydantic object into clean Markdown
                                     plot_bullets = "\n".join([f"- {p}" for p in plan.plot_points])
                                     locations_bullets = "\n".join([f"- {l}" for l in plan.key_locations])
                                     
-                                    clean_markdown = f"""### 🧠 DM's Notes
-_{plan.thought_process}_
-
-**Villain:** {plan.primary_antagonist}
-**Conflict:** {plan.core_conflict}
-
-**Key Locations:**
-{locations_bullets}
-
-**Plot Outline:**
-{plot_bullets}
-
-**Loot:** {plan.loot_concept}
-"""
+                                    clean_markdown = f"### 🧠 DM's Notes\n_{plan.thought_process}_\n\n**Villain:** {plan.primary_antagonist}\n**Conflict:** {plan.core_conflict}\n\n**Key Locations:**\n{locations_bullets}\n\n**Plot Outline:**\n{plot_bullets}\n\n**Loot:** {plan.loot_concept}"
                                     step.output = clean_markdown
                                 else:
                                     step.output = "Thinking..."
                                 
+                                # CHANGE TO PAST TENSE BEFORE EXITING
+                                step.name = "🗺️ Campaign World Planned"
+                                await step.update()
+                                
                         elif node_name == "PartyCreationNode":
-                            async with cl.Step(name="⚔️ Assembling the Party", parent_id=parent_step.id) as step:
+                            parent_step.name = "⚔️ Rolling initiative and crafting character sheets..."
+                            await parent_step.update()
+                            
+                            # Start with present tense
+                            async with cl.Step(name="Drafting the roster...", parent_id=parent_step.id) as step:
                                 party = node_state.get('party_details')
                                 if party:
                                     party_name = party.get('party_name', 'The Nameless')
                                     chars = party.get('characters', [])
-                                    
-                                    # Format the dictionary into a clean Markdown list
                                     char_bullets = "\n".join([f"- **{c.get('name')}**: Level {c.get('level')} {c.get('race')} {c.get('class')}" for c in chars])
-                                    step.output = f"### 📝 Roster Draft: {party_name}\n\n{char_bullets}"
+                                    step.output = f"### 📝 Roster: {party_name}\n\n{char_bullets}"
                                 else:
                                     step.output = "Rolling characters..."
+                                    
+                                # CHANGE TO PAST TENSE BEFORE EXITING
+                                step.name = "⚔️ Party Assembled"
+                                await step.update()
                                 
                         elif node_name == "NarrativeWriterNode":
-                            async with cl.Step(name="📜 Penning the Epic", parent_id=parent_step.id) as step:
-                                step.output = f"**Drafting Complete.**\n\nTitle chosen: {node_state.get('title')}\n\nReviewing lore and formatting markdown..."
+                            parent_step.name = "📜 Consulting the ancient tomes and penning the lore..."
+                            await parent_step.update()
+                            
+                            # Start with present tense
+                            async with cl.Step(name="Writing the epic...", parent_id=parent_step.id) as step:
+                                step.output = f"**Title chosen:** {node_state.get('title')}\n\nReviewing lore and formatting markdown..."
+                                
+                                # CHANGE TO PAST TENSE BEFORE EXITING
+                                step.name = "📜 Lore Penned"
+                                await step.update()
                         
-                        # Merge the new updates into our running state
                         final_state.update(node_state) 
+                
+                # THE FINAL TOUCH: Update the parent step right before the loading animation stops
+                parent_step.name = "🐉 Campaign successfully forged!"
+                await parent_step.update()
+            
+            # ... Formatting and sending the final message remains exactly the same ...
+            
+            # The parent step finishes here, spinner stops.
+            
+            # ... Formatting and sending the final message remains exactly the same ...
             
             # 4. The Parent Step block ends here, stopping the loading animation automatically.
             
@@ -325,7 +341,7 @@ _{plan.thought_process}_
             await cl.Message(content=formatted_output).send()
             
         except Exception as e:
-            await cl.Message(content=f"❌ **Error generating campaign:** {str(e)}").send()
+            await cl.Message(content=f"**Error generating campaign:** {str(e)}").send()
             
     else:
         current_state_str = "\n".join([f"- {k.replace('_', ' ').title()}: {v}" for k, v in state.items() if v and k in required_keys])

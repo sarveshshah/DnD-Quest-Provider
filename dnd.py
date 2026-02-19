@@ -66,7 +66,7 @@ class CampaignState(BaseModel):
     """The unified state passed through the LangGraph."""
     # Inputs
     terrain: Optional[Literal["Arctic", "Coast", "Desert", "Forest", "Grassland", "Mountain", "Swamp", "Underdark"]] = None
-    difficulty: Optional[Literal["easy", "medium", "hard", "deadly"]] = None
+    difficulty: Optional[Literal["Easy", "Medium", "Hard", "Deadly"]] = None
     requirements: Optional[str] = None
     roster_locked: bool = True
     
@@ -132,7 +132,7 @@ def _merge_characters(existing: list[Character], generated: list[Character], par
 
 def planner_node(state: CampaignState):
     """Node 1: Establishes the facts and structured outline of the campaign."""
-    search_query = f"D&D quest ideas for a {state.difficulty or 'medium'} campaign in {state.terrain or 'mixed terrain'}"
+    search_query = f"D&D quest ideas for a {state.difficulty or 'Medium'} campaign in {state.terrain or 'Mixed Terrain'}"
     
     with suppress(ToolException, ValueError, TypeError):
         search_results = search_internet.invoke({"query": search_query})
