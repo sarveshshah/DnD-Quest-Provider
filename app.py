@@ -15,12 +15,14 @@ load_dotenv()
 # --- Models ---
 extractor_model = ChatGoogleGenerativeAI(
     model="gemini-2.5-flash", 
-    temperature=0.1 
+    temperature=0.1,
+    verbose=True
 )
 
 chat_model = ChatGoogleGenerativeAI(
     model="gemini-2.5-flash",
-    temperature=0.7
+    temperature=0.7,
+    verbose=True
 )
 
 # --- Schemas ---
@@ -28,7 +30,7 @@ class CampaignIntake(BaseModel):
     party_name: Optional[str] = Field(None, description="Name of the adventuring party")
     party_size: Optional[int] = Field(None, description="Number of players. CRITICAL: If the user lists specific characters, count them and set this to that number!")
     
-    # NEW: Force the LLM to translate weird inputs into our strict categories
+    # Force the LLM to translate weird inputs into our strict categories
     terrain: Optional[str] = Field(None, description="The terrain. MUST map the user's request to the closest option: Arctic, Coast, Desert, Forest, Grassland, Mountain, Swamp, Underdark. (e.g., 'Ocean' maps to 'Coast', 'City' maps to 'Grassland')")
     difficulty: Optional[str] = Field(None, description="The difficulty. MUST map the user's request to the closest option: easy, medium, hard, deadly. (e.g., '2/10' maps to 'easy', 'impossible' maps to 'deadly')")
     
@@ -36,7 +38,7 @@ class CampaignIntake(BaseModel):
     user_confirmed_start: bool = Field(default=False, description="True ONLY if user says 'start', 'randomize the rest', or 'go with it'. FALSE if they just ask to create a campaign or list requirements.")
 
 # --- Prompts ---
-# FIX 2: Explicitly pass history as text to guarantee the model reads it
+# Explicitly pass history as text to guarantee the model reads it
 EXTRACTOR_PROMPT = ChatPromptTemplate.from_template("""You are a precise data extractor for a D&D Campaign Generator.
     
 RECENT CONVERSATION HISTORY:
@@ -52,7 +54,7 @@ YOUR JOB:
 4. user_confirmed_start should be FALSE if the user asks you to "randomize", "suggest", or "pick". It should ONLY be true if they explicitly agree to start, or say a phrase like "just go with it".
 """)
 
-# FIX 3: Force the conversational AI to immediately provide exact suggestions
+# Explicitly pass history as text to guarantee the model reads it
 CONVERSATIONAL_PROMPT = ChatPromptTemplate.from_messages([
     ("system", """You are a friendly Dungeon Master assistant helping a player set up a campaign.
     
@@ -125,7 +127,7 @@ def format_campaign_output(result: dict) -> str:
             # Character Header
             lines.append(f"**{i}. {name}** (Level {level} {race} {char_class})")
             
-            # Bulleted Traits (Now including everything!)
+            # Bulleted Traits
             traits = []
             if char.get('backstory_hook'): 
                 traits.append(f"**Hook:** {char['backstory_hook']}")
@@ -223,7 +225,7 @@ async def on_message(message: cl.Message):
     required_keys = ["party_name", "party_size", "terrain", "difficulty"]
     missing_keys = [k for k in required_keys if not state[k]]
     
-    # Check if we should trigger generation
+    # Check trigger generation
     wants_to_generate = extracted_data.user_confirmed_start if extracted_data else False
   
     if not missing_keys or wants_to_generate:
@@ -249,16 +251,42 @@ async def on_message(message: cl.Message):
         )
         
         try:
-            final_result = await campaign_generator.ainvoke(initial_graph_state)
-            formatted_output = format_campaign_output(final_result)
+            # Initialize final_state with our starting inputs so nothing is lost
+            final_state = initial_graph_state.model_dump(by_alias=True)
             
-            if "party_details" in final_result and "characters" in final_result["party_details"]:
-                state["characters"] = final_result["party_details"]["characters"]
+            # 1. Start streaming from LangGraph
+            async for output in campaign_generator.astream(initial_graph_state):
+                
+                # output is a dictionary where the key is the Node Name
+                for node_name, node_state in output.items():
+                    
+                    # 2. Map each node to a visual Chainlit Step
+                    if node_name == "PlannerNode":
+                        async with cl.Step(name="🗺️ Planning Campaign World") as step:
+                            step.output = "Generated core conflict, plot points, and antagonist."
+                            
+                    elif node_name == "PartyCreationNode":
+                        async with cl.Step(name="⚔️ Assembling the Party") as step:
+                            step.output = "Rolled character sheets, stats, and narrative hooks."
+                            
+                    elif node_name == "NarrativeWriterNode":
+                        async with cl.Step(name="📜 Penning the Epic") as step:
+                            step.output = "Wrote the background, descriptions, and final lore."
+                    
+                    final_state.update(node_state) 
+            
+            # 4. Once the stream is done, format the fully accumulated state
+            formatted_output = format_campaign_output(final_state)
+            
+            # 5. Save characters to session memory
+            if "party_details" in final_state and "characters" in final_state["party_details"]:
+                state["characters"] = final_state["party_details"]["characters"]
                 cl.user_session.set("campaign_params", state)
                 
             chat_history.append(AIMessage(content="Campaign generated successfully."))
             cl.user_session.set("chat_history", chat_history)
             
+            # 6. Send the final Markdown message
             await cl.Message(content=formatted_output).send()
             
         except Exception as e:

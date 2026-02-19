@@ -14,12 +14,14 @@ load_dotenv()
 # Define model (Using Gemini 2.5 Pro or your preferred capable model)
 model = ChatGoogleGenerativeAI(
     model="gemini-2.5-pro",
-    temperature=0.2 # Low temperature for planning and extraction
+    temperature=0.2, # Low temperature for planning and extraction
+    verbose=True
 )
 
 writer_model = ChatGoogleGenerativeAI(
     model="gemini-2.5-pro",
-    temperature=0.7 # Higher temperature for creative writing
+    temperature=0.7, # Higher temperature for creative writing
+    verbose=True
 )
 
 # --- Schemas ---
