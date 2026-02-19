@@ -113,7 +113,7 @@ def format_campaign_output(result: dict) -> str:
     
     if party_data and 'party_name' in party_data:
         lines.append(f"### ⚔️ Party: {party_data['party_name']} ({party_data.get('party_size', 4)} adventurers)")
-        lines.append("") # Blank line before the roster starts
+        lines.append("") 
         
         characters = party_data.get('characters', [])
         for i, char in enumerate(characters, 1):
@@ -125,14 +125,34 @@ def format_campaign_output(result: dict) -> str:
             # Character Header
             lines.append(f"**{i}. {name}** (Level {level} {race} {char_class})")
             
-            # Bulleted Traits
+            # Bulleted Traits (Now including everything!)
+            traits = []
             if char.get('backstory_hook'): 
-                lines.append(f"  * **Hook:** {char['backstory_hook']}")
-            if char.get('weapons'): 
-                lines.append(f"  * **Weapons:** {char['weapons']}")
+                traits.append(f"**Hook:** {char['backstory_hook']}")
             
-            # The Magic Bullet: An empty string here creates a \n\n when joined,
-            # forcing Chainlit to recognize the end of the bulleted list!
+            if char.get('personality_traits'):
+                pt = char['personality_traits']
+                # Safely handle it whether the LLM returns a list or a single string
+                pt_str = ", ".join(pt) if isinstance(pt, list) else str(pt)
+                traits.append(f"**Traits:** {pt_str}")
+                
+            if char.get('ideals'): 
+                traits.append(f"**Ideals:** {char['ideals']}")
+            if char.get('bonds'): 
+                traits.append(f"**Bonds:** {char['bonds']}")
+            if char.get('flaws'): 
+                traits.append(f"**Flaws:** {char['flaws']}")
+            if char.get('skills'): 
+                traits.append(f"**Skills:** {char['skills']}")
+            if char.get('weapons'): 
+                traits.append(f"**Weapons:** {char['weapons']}")
+            if char.get('inventory'): 
+                traits.append(f"**Inventory:** {char['inventory']}")
+            
+            for trait in traits:
+                lines.append(f"  * {trait}")
+            
+            # Force paragraph break
             lines.append("") 
 
     return "\n".join(lines)
