@@ -240,39 +240,62 @@ def format_campaign_output(result: dict) -> str:
             race = char.get('race', 'Unknown')
             char_class = char.get('class', 'Adventurer')
             level = char.get('level', 1)
+            alignment = char.get('alignment', 'True Neutral')
+            quote = char.get('flavor_quote', 'Lets roll for initiative!')
             
             # Character Header
-            lines.append(f"**{i}. {name}** (Level {level} {race} {char_class})")
+            lines.append(f"### 🛡️ {name}")
+            lines.append(f"**Level {level} {race} {char_class}** • *{alignment}*")
+            lines.append(f"> \"{quote}\"")
+            lines.append("")
             
+            # Render stats as Markdown table if they exist
+            stats = char.get('ability_scores', {})
+            if stats:
+                stat_string = f"**STR** {stats.get('STR', 10)} ｜ **DEX** {stats.get('DEX', 10)} ｜ **CON** {stats.get('CON', 10)} ｜ **INT** {stats.get('INT', 10)} ｜ **WIS** {stats.get('WIS', 10)} ｜ **CHA** {stats.get('CHA', 10)}"
+                lines.append(stat_string)
+                lines.append("")
+
             # Bulleted Traits
-            traits = []
+            # Narrative Hook
             if char.get('backstory_hook'): 
-                traits.append(f"**Hook:** {char['backstory_hook']}")
+                lines.append(f"**Hook:** {char['backstory_hook']}")
+                lines.append("")
             
+            rp_traits = []
             if char.get('personality_traits'):
                 pt = char['personality_traits']
                 # Safely handle it whether the LLM returns a list or a single string
                 pt_str = ", ".join(pt) if isinstance(pt, list) else str(pt)
-                traits.append(f"**Traits:** {pt_str}")
+                rp_traits.append(f"**Traits:** {pt_str}")
                 
             if char.get('ideals'): 
-                traits.append(f"**Ideals:** {char['ideals']}")
+                rp_traits.append(f"**Ideals:** {char['ideals']}")
             if char.get('bonds'): 
-                traits.append(f"**Bonds:** {char['bonds']}")
+                rp_traits.append(f"**Bonds:** {char['bonds']}")
             if char.get('flaws'): 
-                traits.append(f"**Flaws:** {char['flaws']}")
-            if char.get('skills'): 
-                traits.append(f"**Skills:** {char['skills']}")
-            if char.get('weapons'): 
-                traits.append(f"**Weapons:** {char['weapons']}")
-            if char.get('inventory'): 
-                traits.append(f"**Inventory:** {char['inventory']}")
+                rp_traits.append(f"**Flaws:** {char['flaws']}")
+
+            if rp_traits:
+                lines.append(" • ".join(rp_traits))
+                lines.append("")
             
-            for trait in traits:
-                lines.append(f"  * {trait}")
+            # Grouped Mechanics
+            mechanics = []
+            if char.get('skills'): 
+                mechanics.append(f"**Skills:** {char['skills']}")
+            if char.get('weapons'): 
+                mechanics.append(f"**Weapons:** {char['weapons']}")
+            if char.get('inventory'): 
+                mechanics.append(f"**Inventory:** {char['inventory']}")
+            
+            if mechanics:
+                lines.append(" • ".join(mechanics))
             
             # Force paragraph break
             lines.append("") 
+            lines.append("---")
+            lines.append("")
 
     return "\n".join(lines)
 
@@ -310,7 +333,7 @@ Pull up a chair by the hearth! I'm your Assistant *to the* Regional Dungeon Mast
 **To forge your world, we need to lock in:**
 * 🏰 **Party Name:** What is the title of your adventuring company?
 * 👥 **Party Size:** How many brave souls are at the table?
-* 🗺️ **Terrain:** Where does the journey begin? *(Arctic, Coast, Desert, Forest, Grassland, Mountain, Swamp, or Underdark)*
+* 🗺️ **Terrain:** Where does the journey begin? *(Arctic, Desert, or Forest, etc.)*
 * ☠️ **Difficulty:** How perilous is the road ahead? *(Easy, Medium, Hard, or Deadly)*
 
 **Choose your path:**

@@ -37,6 +37,9 @@ class Character(BaseModel):
     ideals: Optional[str] = Field(default=None, description="Ideals that drive the character")
     bonds: Optional[str] = Field(default=None, description="Important bonds or connections")
     flaws: Optional[str] = Field(default=None, description="Notable flaws")
+    alignment: str = Field(description="D&D alignment (e.g., Chaotic Good, Lawful Evil)")
+    flavor_quote: str = Field(description="A short, in-character quote that sums up their personality")
+    ability_scores: dict[str, int] = Field(description="A dictionary of standard D&D stats (STR, DEX, CON, INT, WIS, CHA) generated using standard array or point buy.")
     inventory: Optional[str] = Field(default=None, description="Key items or equipment")
     weapons: Optional[str] = Field(default=None, description="Primary weapons")
     skills: Optional[str] = Field(default=None, description="Notable skills")
@@ -52,6 +55,7 @@ class CampaignPlan(BaseModel):
     primary_antagonist: str = Field(description="Name and brief concept of the main boss/villain")
     core_conflict: str = Field(description="One sentence summarizing the main problem")
     plot_points: list[str] = Field(description="3 to 4 major events that will happen in the quest")
+    factions_involved: list[str] = Field(description="1 or 2 local factions or guilds involved in the conflict")
     key_locations: list[str] = Field(description="Specific areas within the terrain the party will visit")
     loot_concept: str = Field(description="The general idea for the final reward")
 
