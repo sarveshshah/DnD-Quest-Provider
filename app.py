@@ -8,6 +8,7 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import HumanMessage, AIMessage
 
 from chainlit.input_widget import TextInput, Select, Slider
+import textwrap
 
 from dnd import app as campaign_generator, CampaignState, PartyDetails
 
@@ -212,92 +213,94 @@ def format_campaign_output(result: dict) -> str:
     
     party_data = result.get('party_details', {})
     
-    lines = [
-        f"## 🎲 Campaign: {title}",
-        "",
-        "### 📖 Description",
-        description,
-        "",
-        "### 🌄 Background",
-        background,
-        "",
-        "### 🗺️ Setting",
-        f"- **Terrain:** {terrain.title()}",
-        f"- **Difficulty:** {difficulty.title()}",
-        "",
-        "### 🏆 Rewards",
-        rewards,
-        "",
-    ]
+    def safe_join(data):
+        return ", ".join(data) if isinstance(data, list) else str(data)
     
+    html_parts = []
+    
+    # --- 1. CAMPAIGN HEADER CARD ---
+    header_html = f"""
+    <div class="mb-8 border border-slate-300 rounded-xl overflow-hidden shadow-md bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200">
+        <div class="bg-slate-100 dark:bg-slate-700 p-6 border-b border-slate-300">
+            <h1 class="text-3xl font-extrabold text-slate-800 dark:text-white m-0 mb-4">🐉 {title}</h1>
+            <div class="text-base text-slate-700 dark:text-slate-200 whitespace-pre-wrap leading-relaxed italic">"{description}"</div>
+        </div>
+        <div class="p-6">
+            <div class="flex gap-3 mb-6">
+                <span class="px-3 py-1 bg-emerald-100 dark:bg-emerald-900/50 text-emerald-800 dark:text-emerald-300 rounded-full text-sm font-bold shadow-sm">🗺️ {terrain.title()}</span>
+                <span class="px-3 py-1 bg-red-100 dark:bg-red-900/50 text-red-800 dark:text-red-300 rounded-full text-sm font-bold shadow-sm">☠️ {difficulty.title()}</span>
+            </div>
+            <h3 class="text-xl font-bold mb-3 border-b border-slate-200 dark:border-slate-700 pb-2">📜 The Setting</h3>
+            <div class="mb-6 text-sm whitespace-pre-wrap leading-relaxed">{background}</div>
+            <h3 class="text-xl font-bold mb-3 border-b border-slate-200 dark:border-slate-700 pb-2">🏆 The Hook & Rewards</h3>
+            <div class="text-sm whitespace-pre-wrap leading-relaxed">{rewards}</div>
+        </div>
+    </div>
+    """
+    # dedent() strips the leading python indentation so it doesn't trigger markdown code blocks
+    html_parts.append(textwrap.dedent(header_html))
+    
+    # --- 2. PARTY ROSTER CARDS ---
     if party_data and 'party_name' in party_data:
-        lines.append(f"### ⚔️ Party: {party_data['party_name']} ({party_data.get('party_size', 4)} adventurers)")
-        lines.append("") 
+        html_parts.append(f'<h2 class="text-2xl font-bold mt-10 mb-6 text-slate-800 dark:text-white">⚔️ {party_data["party_name"]}</h2>')
         
         characters = party_data.get('characters', [])
-        for i, char in enumerate(characters, 1):
-            name = char.get('name', f'Hero {i}')
+        for char in characters:
+            name = char.get('name', 'Unknown Hero')
             race = char.get('race', 'Unknown')
             char_class = char.get('class', 'Adventurer')
             level = char.get('level', 1)
             alignment = char.get('alignment', 'True Neutral')
-            quote = char.get('flavor_quote', 'Lets roll for initiative!')
-            
-            # Character Header
-            lines.append(f"### 🛡️ {name}")
-            lines.append(f"**Level {level} {race} {char_class}** • *{alignment}*")
-            lines.append(f"> \"{quote}\"")
-            lines.append("")
-            
-            # Render stats as Markdown table if they exist
+            quote = char.get('flavor_quote', 'Let us roll for initiative.')
             stats = char.get('ability_scores', {})
-            if stats:
-                stat_string = f"**STR** {stats.get('STR', 10)} ｜ **DEX** {stats.get('DEX', 10)} ｜ **CON** {stats.get('CON', 10)} ｜ **INT** {stats.get('INT', 10)} ｜ **WIS** {stats.get('WIS', 10)} ｜ **CHA** {stats.get('CHA', 10)}"
-                lines.append(stat_string)
-                lines.append("")
+            
+            char_card = f"""\
+            <div class="mb-6 border border-slate-300 rounded-xl overflow-hidden shadow-sm bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200">
+                <div class="bg-slate-50 dark:bg-slate-700 p-5 border-b border-slate-300">
+                    <h3 class="text-xl font-black m-0 mb-1">🛡️ {name}</h3>
+                    <p class="text-sm m-0 opacity-80">Level {level} {race} {char_class} • <strong>{alignment}</strong></p>
+                </div>
+                <div class="p-6">
+                    <div class="mb-6 italic text-sm text-center opacity-80">"{quote}"</div>\
+                    <div class="flex flex-wrap justify-center sm:justify-between bg-slate-100 dark:bg-slate-900 p-3 rounded-lg border border-slate-200 dark:border-slate-700 mb-6 text-center gap-y-2">
+                        <div class="px-3"><div class="text-xs font-bold opacity-60">STR</div><div class="text-lg font-black">{stats.get('STR', 10)}</div></div>
+                        <div class="hidden sm:block border-l border-slate-300 dark:border-slate-700"></div>
+                        <div class="px-3"><div class="text-xs font-bold opacity-60">DEX</div><div class="text-lg font-black">{stats.get('DEX', 10)}</div></div>
+                        <div class="hidden sm:block border-l border-slate-300 dark:border-slate-700"></div>
+                        <div class="px-3"><div class="text-xs font-bold opacity-60">CON</div><div class="text-lg font-black">{stats.get('CON', 10)}</div></div>
+                        <div class="hidden sm:block border-l border-slate-300 dark:border-slate-700"></div>
+                        <div class="px-3"><div class="text-xs font-bold opacity-60">INT</div><div class="text-lg font-black">{stats.get('INT', 10)}</div></div>
+                        <div class="hidden sm:block border-l border-slate-300 dark:border-slate-700"></div>
+                        <div class="px-3"><div class="text-xs font-bold opacity-60">WIS</div><div class="text-lg font-black">{stats.get('WIS', 10)}</div></div>
+                        <div class="hidden sm:block border-l border-slate-300 dark:border-slate-700"></div>
+                        <div class="px-3"><div class="text-xs font-bold opacity-60">CHA</div><div class="text-lg font-black">{stats.get('CHA', 10)}</div></div>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-8 text-sm">
+                        <div>
+                            <h4 class="font-bold border-b border-slate-200 dark:border-slate-700 pb-2 mb-3 text-slate-900 dark:text-white">Lore & Personality</h4>
+                            <ul class="list-none p-0 m-0 space-y-2">
+                                <li><strong class="text-slate-900 dark:text-slate-100">Hook:</strong> {char.get('backstory_hook', '')}</li>
+                                <li><strong class="text-slate-900 dark:text-slate-100">Traits:</strong> {safe_join(char.get('personality_traits', ''))}</li>
+                                <li><strong class="text-slate-900 dark:text-slate-100">Ideal:</strong> {char.get('ideals', '')}</li>
+                                <li><strong class="text-slate-900 dark:text-slate-100">Bond:</strong> {char.get('bonds', '')}</li>
+                                <li><strong class="text-slate-900 dark:text-slate-100">Flaw:</strong> {char.get('flaws', '')}</li>
+                            </ul>
+                        </div>
+                        <div>
+                            <h4 class="font-bold border-b border-slate-200 dark:border-slate-700 pb-2 mb-3 text-slate-900 dark:text-white">Proficiencies & Gear</h4>
+                            <ul class="list-none p-0 m-0 space-y-2">
+                                <li><strong class="text-slate-900 dark:text-slate-100">Skills:</strong> {safe_join(char.get('skills', ''))}</li>
+                                <li><strong class="text-slate-900 dark:text-slate-100">Weapons:</strong> {safe_join(char.get('weapons', ''))}</li>
+                                <li><strong class="text-slate-900 dark:text-slate-100">Inventory:</strong> {safe_join(char.get('inventory', ''))}</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            """
+            html_parts.append(textwrap.dedent(char_card))
 
-            # Bulleted Traits
-            # Narrative Hook
-            if char.get('backstory_hook'): 
-                lines.append(f"**Hook:** {char['backstory_hook']}")
-                lines.append("")
-            
-            rp_traits = []
-            if char.get('personality_traits'):
-                pt = char['personality_traits']
-                # Safely handle it whether the LLM returns a list or a single string
-                pt_str = ", ".join(pt) if isinstance(pt, list) else str(pt)
-                rp_traits.append(f"**Traits:** {pt_str}")
-                
-            if char.get('ideals'): 
-                rp_traits.append(f"**Ideals:** {char['ideals']}")
-            if char.get('bonds'): 
-                rp_traits.append(f"**Bonds:** {char['bonds']}")
-            if char.get('flaws'): 
-                rp_traits.append(f"**Flaws:** {char['flaws']}")
-
-            if rp_traits:
-                lines.append(" • ".join(rp_traits))
-                lines.append("")
-            
-            # Grouped Mechanics
-            mechanics = []
-            if char.get('skills'): 
-                mechanics.append(f"**Skills:** {char['skills']}")
-            if char.get('weapons'): 
-                mechanics.append(f"**Weapons:** {char['weapons']}")
-            if char.get('inventory'): 
-                mechanics.append(f"**Inventory:** {char['inventory']}")
-            
-            if mechanics:
-                lines.append(" • ".join(mechanics))
-            
-            # Force paragraph break
-            lines.append("") 
-            lines.append("---")
-            lines.append("")
-
-    return "\n".join(lines)
+    return "\n".join(html_parts)
 
 # --- Chainlit App ---
 
