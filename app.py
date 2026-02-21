@@ -1,14 +1,14 @@
 import chainlit as cl
-import json
-from typing import Literal, Optional
+from chainlit.input_widget import TextInput, Select, Slider
+
+from typing import Optional
 from pydantic import BaseModel, Field
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import HumanMessage, AIMessage
 
-from chainlit.input_widget import TextInput, Select, Slider
-import textwrap
+import uuid
 
 from dnd import app as campaign_generator, CampaignState, PartyDetails
 
@@ -111,12 +111,15 @@ async def generate_campaign(state: dict):
     
     try:
         final_state = initial_graph_state.model_dump(by_alias=True)
+
+        thread_id = cl.user_session.get("thread_id")
+        config = {"configurable": {"thread_id": thread_id}}  # Pass thread_id in config for memory association
         
         # 1. Start with an initial "table setting" message
         async with cl.Step(name="🎲 Preparing the table...") as parent_step:
             await parent_step.send()
             # Go through the stream of updates from the campaign generator and update the parent step accordingly, while also creating child steps for each node update
-            async for output in campaign_generator.astream(initial_graph_state):
+            async for output in campaign_generator.astream(initial_graph_state, config = config):
                 # 2. For each node update, find out which node it is and update the parent step accordingly
                 for node_name, node_state in output.items():
                     
@@ -189,236 +192,6 @@ async def generate_campaign(state: dict):
         
     except Exception as e:
         await cl.Message(content=f"**Error generating campaign:** {str(e)}").send()
-
-def _format_campaign_output(result: dict) -> str:
-    """Backup Function"""
-
-    if False:
-        title = result.get('title', 'Epic Adventure')
-        description = result.get('description', 'An exciting adventure awaits!')
-        background = result.get('background', 'The story begins...')
-        rewards = result.get('rewards', 'Glory and treasure!')
-        terrain = result.get('terrain', 'Unknown')
-        difficulty = result.get('difficulty', 'Unknown')
-        
-        # Safely extract DM Notes
-        plan = result.get('campaign_plan')
-        if plan:
-            villain = plan.get('primary_antagonist', 'Unknown') if isinstance(plan, dict) else getattr(plan, 'primary_antagonist', 'Unknown')
-            conflict = plan.get('core_conflict', description) if isinstance(plan, dict) else getattr(plan, 'core_conflict', description)
-            plot_points = plan.get('plot_points', []) if isinstance(plan, dict) else getattr(plan, 'plot_points', [])
-            locations = plan.get('key_locations', []) if isinstance(plan, dict) else getattr(plan, 'key_locations', [])
-            factions = plan.get('factions_involved', []) if isinstance(plan, dict) else getattr(plan, 'factions_involved', [])
-        else:
-            villain, conflict, plot_points, locations, factions = "Unknown", description, [], [], []
-
-        # Clean, minimalist lists
-        plot_rows = "".join([f'<li>{p}</li>' for p in plot_points])
-        loc_rows = "".join([f'<li class="flex items-start"><span class="mr-3 opacity-60">📍</span><span>{l}</span></li>' for l in locations])
-        
-        # Handle long faction descriptions cleanly
-        faction_html = ""
-        if factions:
-            faction_html = '<ul class="list-disc pl-5 mb-8 space-y-2 text-sm text-slate-700 dark:text-slate-300">'
-            for f in factions:
-                if ":" in f:
-                    name, desc = f.split(":", 1)
-                    faction_html += f'<li><strong class="text-slate-900 dark:text-slate-100">{name}:</strong>{desc}</li>'
-                else:
-                    faction_html += f'<li>{f}</li>'
-            faction_html += '</ul>'
-        else:
-            faction_html = '<p class="text-sm text-slate-500 italic mb-8">None established.</p>'
-        
-        html_parts = []
-        party_data = result.get('party_details', {})
-        
-        # --- 1. CAMPAIGN HEADER (Ultra-Clean, Minimalist Document) ---
-        header_html = f"""
-        <div class="w-full max-w-3xl mx-auto font-sans mb-16 px-4 sm:px-0 text-slate-800 dark:text-slate-200">
-            
-            <div class="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Campaigns / Draft &bull; {terrain.title()} &bull; {difficulty.title()}</div>
-            <h1 class="text-4xl sm:text-5xl font-black text-slate-900 dark:text-white mb-10 tracking-tight">{title}</h1>
-            
-            <div class="border-l-4 border-blue-500 pl-4 py-1 mb-10 text-lg font-medium text-slate-700 dark:text-slate-300">
-                {conflict}
-            </div>
-
-            <h3 class="text-xs font-bold uppercase tracking-widest text-slate-500 mb-2">Description</h3>
-            <p class="text-sm leading-relaxed mb-8">{description}</p>
-
-            <h3 class="text-xs font-bold uppercase tracking-widest text-slate-500 mb-2">Background Lore</h3>
-            <p class="text-sm leading-relaxed mb-8">{background}</p>
-
-            <h3 class="text-xs font-bold uppercase tracking-widest text-slate-500 mb-2">Primary Antagonist</h3>
-            <p class="text-sm font-bold text-slate-900 dark:text-slate-100 leading-relaxed mb-8">{villain}</p>
-
-            <h3 class="text-xs font-bold uppercase tracking-widest text-slate-500 mb-2">Plot Points</h3>
-            <ul class="list-disc pl-5 mb-8 space-y-2 text-sm text-slate-700 dark:text-slate-300 marker:text-blue-500">
-                {plot_rows}
-            </ul>
-
-            <h3 class="text-xs font-bold uppercase tracking-widest text-slate-500 mb-2">Factions Involved</h3>
-            {faction_html}
-
-            <h3 class="text-xs font-bold uppercase tracking-widest text-slate-500 mb-2">Key Locations</h3>
-            <ul class="list-none mb-12 space-y-3 text-sm text-slate-700 dark:text-slate-300">
-                {loc_rows}
-            </ul>
-
-            <hr class="border-slate-200 dark:border-slate-700 mb-6 mt-12">
-            <h3 class="text-xs font-bold text-blue-500 uppercase tracking-widest mb-2">Campaign Rewards</h3>
-            <div class="text-2xl font-black mb-2 text-slate-900 dark:text-white tracking-tight">Glory & Treasure</div>
-            <p class="text-sm text-slate-600 dark:text-slate-400 leading-relaxed mb-8">{rewards}</p>
-            
-        </div>
-        """
-        html_parts.append(" ".join(header_html.split()))
-        
-        # --- 1.5. THE PARTY DIVIDER ---
-        party_name = party_data.get('party_name', 'The Nameless Heroes') if party_data else 'The Nameless Heroes'
-        char_header_html = f"""
-        <div class="w-full max-w-4xl mx-auto mt-24 mb-12 text-center border-t border-slate-200 dark:border-slate-700 pt-12">
-            <div class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Party Assembled</div>
-            <h2 class="text-3xl sm:text-4xl font-black text-slate-900 dark:text-white m-0 tracking-tight flex items-center justify-center gap-3">
-                ⚔️ {party_name}
-            </h2>
-        </div>
-        """
-        html_parts.append(" ".join(char_header_html.split()))
-        
-        # --- 2. THE CHARACTER CARDS ---
-        if party_data and 'party_name' in party_data:
-            characters = party_data.get('characters', [])
-            
-            for char in characters:
-                name = char.get('name', 'Unknown Hero')
-                race = char.get('race', 'Unknown')
-                char_class = char.get('class', 'Adventurer')
-                level = char.get('level', 1)
-                alignment = char.get('alignment', 'True Neutral')
-                quote = char.get('flavor_quote', '')
-                hp = char.get('hp', 10)
-                ac = char.get('ac', 10)
-                
-                stats = char.get('ability_scores', {})
-                str_val, dex_val, con_val, int_val, wis_val, cha_val = stats.get('STR', 10), stats.get('DEX', 10), stats.get('CON', 10), stats.get('INT', 10), stats.get('WIS', 10), stats.get('CHA', 10)
-                max_stat = max(str_val, dex_val, con_val, int_val, wis_val, cha_val)
-                def color_stat(val): return "text-blue-600 dark:text-blue-400" if val == max_stat else "text-slate-900 dark:text-slate-100"
-                
-                skills_list = char.get('skills', [])
-                if isinstance(skills_list, str): skills_list = [s.strip() for s in skills_list.split(',')]
-                skills_html = "".join([f'<span class="inline-block bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 px-2 py-1 rounded text-xs font-medium mr-2 mb-2">{s}</span>' for s in skills_list])
-                
-                traits = char.get('personality_traits', [])
-                traits_html = "".join([f'<li>{t}</li>' for t in (traits if isinstance(traits, list) else [traits])])
-                
-                # COMBAT FALLBACK (Handles missing stats cleanly)
-                combat_list = char.get('combat_actions', [])
-                combat_html = ""
-                for c in combat_list:
-                    if isinstance(c, str):
-                        combat_html += f'<li><strong class="text-slate-900 dark:text-slate-100">{c}</strong></li>'
-                    elif isinstance(c, dict):
-                        c_name = c.get("name", "Attack").strip()
-                        c_stats = c.get("stats", c.get("damage", c.get("description", ""))).strip()
-                        if c_stats:
-                            combat_html += f'<li><strong class="text-slate-900 dark:text-slate-100">{c_name}:</strong> <span class="text-slate-500 dark:text-slate-400">{c_stats}</span></li>'
-                        else:
-                            combat_html += f'<li><strong class="text-slate-900 dark:text-slate-100">{c_name}</strong></li>'
-                        
-                inventory_list = char.get('inventory', [])
-                if isinstance(inventory_list, str): inventory_list = [inventory_list]
-                inv_html = "".join([f'<li><span class="mr-2 opacity-70">🎒</span>{item}</li>' for item in inventory_list])
-
-                char_card = f"""
-    <div class="mb-8 border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800 shadow-sm w-full max-w-4xl mx-auto overflow-hidden font-sans">
-        <table width="100%" cellpadding="24" cellspacing="0" border="0">
-            <tr>
-                <td align="left" valign="middle">
-                    <h2 class="text-3xl font-extrabold text-slate-900 dark:text-white m-0 tracking-tight">{name}</h2>
-                    <p class="text-sm text-slate-500 dark:text-slate-400 mt-1 m-0">Level {level} {race} {char_class} &bull; {alignment}</p>
-                </td>
-                <td align="right" valign="middle">
-                    <table cellpadding="8" cellspacing="0" border="0" align="right">
-                        <tr>
-                            <td align="right" valign="middle">
-                                <div class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Health</div>
-                                <div class="text-sm font-bold text-slate-900 dark:text-slate-100 whitespace-nowrap">{hp} / {hp} HP</div>
-                            </td>
-                            <td align="right" valign="middle">
-                                <div class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Armor</div>
-                                <div class="text-sm font-bold text-slate-900 dark:text-slate-100 whitespace-nowrap">{ac} AC</div>
-                            </td>
-                        </tr>
-                    </table>
-                </td>
-            </tr>
-        </table>
-
-        <div class="px-6 mb-6">
-            <div class="border-l-2 border-slate-300 dark:border-slate-600 pl-4 py-1 italic text-slate-500 dark:text-slate-400 text-sm">
-                "{quote}"
-            </div>
-        </div>
-
-        <div class="border-y border-slate-100 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/20 py-4 w-full">
-            <table width="100%" cellpadding="0" cellspacing="0" border="0">
-                <tr>
-                    <td width="16.6%" align="center"><div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">STR</div><div class="text-xl font-bold {color_stat(str_val)}">{str_val}</div></td>
-                    <td width="16.6%" align="center"><div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">DEX</div><div class="text-xl font-bold {color_stat(dex_val)}">{dex_val}</div></td>
-                    <td width="16.6%" align="center"><div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">CON</div><div class="text-xl font-bold {color_stat(con_val)}">{con_val}</div></td>
-                    <td width="16.6%" align="center"><div class="text-[10px] font-bold text-blue-500 uppercase tracking-wider mb-1">INT</div><div class="text-xl font-bold {color_stat(int_val)}">{int_val}</div></td>
-                    <td width="16.6%" align="center"><div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">WIS</div><div class="text-xl font-bold {color_stat(wis_val)}">{wis_val}</div></td>
-                    <td width="16.6%" align="center"><div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">CHA</div><div class="text-xl font-bold {color_stat(cha_val)}">{cha_val}</div></td>
-                </tr>
-            </table>
-        </div>
-
-        <table width="100%" cellpadding="24" cellspacing="0" border="0">
-            <tr>
-                <td width="50%" valign="top" class="border-r border-slate-100 dark:border-slate-700 pr-6">
-                    <h4 class="text-[11px] font-bold text-slate-900 dark:text-slate-100 uppercase tracking-widest mb-4">Narrative Hook</h4>
-                    <div class="text-sm text-slate-700 dark:text-slate-300 leading-relaxed mb-8">
-                        {char.get('backstory_hook', '')}
-                    </div>
-                    
-                    <h4 class="text-[11px] font-bold text-slate-900 dark:text-slate-100 uppercase tracking-widest mb-4">Traits & Ideals</h4>
-                    <ul class="list-disc pl-5 text-sm text-slate-700 dark:text-slate-300 space-y-2 mb-8 marker:text-blue-500 leading-relaxed">
-                        {traits_html}
-                        <li>{char.get('ideals', '')}</li>
-                    </ul>
-                    
-                    <h4 class="text-[11px] font-bold text-slate-900 dark:text-slate-100 uppercase tracking-widest mb-4">Bonds & Flaws</h4>
-                    <div class="text-sm text-slate-700 dark:text-slate-300 leading-relaxed space-y-2 mb-8">
-                        <div>{char.get('bonds', '')}</div>
-                        <div>{char.get('flaws', '')}</div>
-                    </div>
-                </td>
-                <td width="50%" valign="top" class="pl-6">
-                    <h4 class="text-[11px] font-bold text-slate-900 dark:text-slate-100 uppercase tracking-widest mb-4">Skills</h4>
-                    <div class="mb-8 leading-relaxed">
-                        {skills_html}
-                    </div>
-                    
-                    <h4 class="text-[11px] font-bold text-slate-900 dark:text-slate-100 uppercase tracking-widest mb-4">Combat</h4>
-                    <ul class="list-disc pl-5 text-sm text-slate-700 dark:text-slate-300 space-y-2 mb-8 marker:text-slate-400 leading-relaxed">
-                        {combat_html}
-                    </ul>
-                    
-                    <h4 class="text-[11px] font-bold text-slate-900 dark:text-slate-100 uppercase tracking-widest mb-4">Key Inventory</h4>
-                    <ul class="list-none p-0 m-0 text-sm text-slate-700 dark:text-slate-300 space-y-2 leading-relaxed">
-                        {inv_html}
-                    </ul>
-                </td>
-            </tr>
-        </table>
-    </div>
-    """
-                char_card = " ".join(char_card.split())
-                html_parts.append(char_card)
-
-        return f'<div class="campaign-output flex flex-col items-center w-full">\n{"".join(html_parts)}\n</div>'
 
 def format_campaign_output(result: dict) -> str:
     title = result.get('title', 'Epic Adventure')
@@ -588,6 +361,10 @@ def format_campaign_output(result: dict) -> str:
 # --- Chainlit App ---
 @cl.on_chat_start
 async def on_chat_start():
+
+    # Introduce Memory to the session to avoid expensive reruns
+    cl.user_session.set("thread_id", str(uuid.uuid4()))
+
     cl.user_session.set("campaign_params", {
         "party_name": None, "party_size": None, "terrain": None, 
         "difficulty": None, "requirements": "", "characters": [], "roster_locked": True

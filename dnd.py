@@ -8,8 +8,11 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_community.tools import DuckDuckGoSearchResults
 from langchain_community.retrievers import WikipediaRetriever
 
+from langgraph.checkpoint.memory import MemorySaver
+
 from dotenv import load_dotenv
 import re
+
 load_dotenv()
 
 # Define model (Using Gemini 2.5 Pro or your preferred capable model)
@@ -27,17 +30,14 @@ writer_model = ChatGoogleGenerativeAI(
 
 # --- Schemas ---
 
+class RouteDecision(BaseModel):
+    target_node: Literal["PlannerNode", "PartyCreationNode", "NarrativeWriterNode"] = Field(
+        description="The node to route the graph to based on the user's request."
+    )
+
 class CombatAction(BaseModel):
     name: str = Field(description="Name of attack or spell (e.g., Longsword, Fire Bolt)")
     stats: str = Field(description="MANDATORY COMBAT MATH. You MUST calculate and write the to-hit bonus and damage dice based on their ability scores (e.g., '+5 to hit | 1d8+3 Slashing'). DO NOT leave this blank.")
-
-    @field_validator("stats")
-    @classmethod
-    def validate_stats(cls, v):
-        """Internal function to ensure the stats field includes calculated to-hit bonus and damage."""
-        if not v or len(v.strip()) < 3 or not re.search(r'[+\-]?\d+\s*(?:to hit|d\d+[+\-]?\d*)?', v):
-            raise ValueError("Stats must include calculated to-hit bonus and damage (e.g., '+5 to hit | 1d8+3 Slashing').")
-        return v
 
 class Character(BaseModel):
     # Basic Attributes
@@ -139,31 +139,31 @@ def search_wikipedia(query: str) -> str:
 def _normalize_name(name: str) -> str:
     return name.strip().lower()
 
-def _merge_characters(existing: list[Character], generated: list[Character], party_size: int, roster_locked: bool) -> list[Character]:
-    merged: list[Character] = []
-    seen: set[str] = set()
+# def _merge_characters(existing: list[Character], generated: list[Character], party_size: int, roster_locked: bool) -> list[Character]:
+#     merged: list[Character] = []
+#     seen: set[str] = set()
 
-    def add_chars(chars: list[Character]) -> None:
-        for character in chars:
-            key = _normalize_name(character.name)
-            if key and key not in seen:
-                merged.append(character)
-                seen.add(key)
+#     def add_chars(chars: list[Character]) -> None:
+#         for character in chars:
+#             key = _normalize_name(character.name)
+#             if key and key not in seen:
+#                 merged.append(character)
+#                 seen.add(key)
 
-    if roster_locked:
-        add_chars(existing)
-        add_chars(generated)
-    else:
-        add_chars(generated)
-        add_chars(existing)
+#     if roster_locked:
+#         add_chars(existing)
+#         add_chars(generated)
+#     else:
+#         add_chars(generated)
+#         add_chars(existing)
 
-    if len(merged) > party_size:
-        merged = merged[:party_size]
+#     if len(merged) > party_size:
+#         merged = merged[:party_size]
 
-    while len(merged) < party_size:
-        merged.append(Character(name=f"TBD Adventurer {len(merged) + 1}", race="Unknown", class_name="Adventurer", level=1))
+#     while len(merged) < party_size:
+#         merged.append(Character(name=f"TBD Adventurer {len(merged) + 1}", race="Unknown", class_name="Adventurer", level=1))
 
-    return merged
+#     return merged
 
 # --- Nodes ---
 
@@ -175,6 +175,9 @@ def planner_node(state: CampaignState):
         search_results = search_internet.invoke({"query": search_query})
     with suppress(ToolException, ValueError, TypeError):
         wiki_results = search_wikipedia.invoke({"query": search_query})
+
+    # Grab existing plan if it exists
+    existing_plan = state.campaign_plan.model_dump_json(indent=2) if state.campaign_plan else "No plan exists yet."
 
     prompt = f"""You are a D&D Campaign Architect. Your job is to create a logical, structured outline for a quest.
     DO NOT write the story yet. Only establish the facts.
@@ -189,6 +192,11 @@ def planner_node(state: CampaignState):
     {wiki_results}
 
     Analyze the requirements and create a strict CampaignPlan. Ensure the boss, plot points, and locations make sense together.
+
+    CRITICAL RULES:
+    1. If an "Existing Plan" is provided, you are in STRICT EDITING MODE. Identify exactly what the user wants to change (e.g., swapping a villain's name). Then, ONLY modify the specific elements requested by the user and keep all other plot points, locations, and conflicts exactly the same. Do NOT regenerate the whole plan.
+    2. 2. THE COPY-PASTE MANDATE: For every single field you are NOT explicitly asked to change (core_conflict, plot_points, factions_involved, key_locations, loot_concept), you MUST copy the array or string EXACTLY character-for-character from the Existing Plan. Do not paraphrase. Do not adjust the plot to fit the new name.
+    2. If no Existing Plan is provided, analyze the requirements and create a strict CampaignPlan from scratch.
     """
     structured_llm = model.with_structured_output(CampaignPlan)
     plan = structured_llm.invoke(prompt)
@@ -200,27 +208,26 @@ def party_creation_node(state: CampaignState):
     party_name = state.party_details.party_name if state.party_details else "Not Provided"
     party_size = state.party_details.party_size if state.party_details else 4
     existing_characters = state.party_details.characters if state.party_details else []
-    remaining_slots = max(party_size - len(existing_characters), 0)
-    roster_locked = state.roster_locked
+    # remaining_slots = max(party_size - len(existing_characters), 0)
+    # roster_locked = state.roster_locked
 
     plan_context = state.campaign_plan.model_dump_json(indent=2) if state.campaign_plan else "No plan available."
 
-    prompt = f"""You are a D&D Party Architect. Create or fill out a party for this specific campaign plan:
+    prompt = prompt = f"""You are a D&D Party Architect. Create or edit a party for this specific campaign plan:
     {plan_context}
 
     Party Name: {party_name}
     Target Size: {party_size}
-    Slots to generate: {remaining_slots}
-    Roster Locked: {roster_locked}
-    User Requirements: {state.requirements or 'None'}
+    User Requirements (May contain edit requests): {state.requirements or 'None'}
     
-    Existing Characters (Do not alter if Roster Locked is True):
+    Current Party Roster:
     {existing_characters}
 
     CRITICAL CHARACTER CREATION RULES:
-    1. READ THE USER REQUIREMENTS CAREFULLY. If the user asks to play as specific existing fictional characters, celebrities, or pop-culture icons (e.g., "Luke Skywalker", "Sherlock Holmes"), YOU MUST USE THEIR EXACT NAMES. Do not rename them.
-    2. Adapt these requested characters into the 5e D&D ruleset (e.g., Luke as a Psi Warrior Fighter or Paladin, Sherlock as an Inquisitive Rogue). But DO NOT RENAME THEM.
-    3. For any remaining empty slots, generate unique, original characters that fit the campaign theme to reach the Target Size of {party_size}.
+    1. READ THE USER REQUIREMENTS CAREFULLY. If the user asks to edit, rename, or change an existing character, you MUST apply those changes!
+    2. Output the COMPLETE party roster of {party_size} characters. Copy any unedited characters exactly as they were, and include your modified characters or new additions.
+    3. COMBAT MATH: You MUST calculate accurate 'to-hit' bonuses, damage, or Spell Save DCs for every item in the `weapons` and `spells` lists. 
+    4. MAGIC USERS ONLY: If a character's class does not use magic, leave their `spells` list completely empty.
     """
 
     structured_llm = model.with_structured_output(PartyDetails)
@@ -228,19 +235,23 @@ def party_creation_node(state: CampaignState):
     
     new_party_details.party_name = party_name
     new_party_details.party_size = party_size
-    new_party_details.characters = _merge_characters(
-        existing_characters,
-        new_party_details.characters,
-        party_size,
-        roster_locked
-    )
+
+    new_party_details.characters = new_party_details.characters[:party_size]
+    while len(new_party_details.characters) < party_size:
+        new_party_details.characters.append(
+            Character(name=f"TBD Adventurer {len(new_party_details.characters) + 1}", race="Unknown", class_name="Adventurer", level=1)
+        )
     
     return {"party_details": new_party_details.model_dump(by_alias=True)}
 
 def narrative_writer_node(state: CampaignState):
     """Node 3: Takes the structured facts and writes the final, high-quality Markdown prose."""
-    plan_context = state.campaign_plan.model_dump_json(indent=2) if state.campaign_plan else "No plan available."
-    party_context = state.party_details.model_dump_json(indent=2, by_alias=True) if state.party_details else "No party details."
+    plan_context = state.campaign_plan.model_dump_json(indent = 2) if state.campaign_plan else "No plan available."
+    party_context = state.party_details.model_dump_json(indent = 2, by_alias = True) if state.party_details else "No party details."
+
+    existing_narrative = "None"
+    if state.title:
+        existing_narrative = f"Title: {state.title}\nDescription: {state.description}\nBackground: {state.background}\nRewards: {state.rewards}"
 
     prompt = f"""You are an elite Dungeon Master and fantasy author. 
     Your job is to take the following dry Campaign Plan and Party Details, and write the final, evocative campaign prose.
@@ -254,11 +265,21 @@ def narrative_writer_node(state: CampaignState):
     Difficulty: {state.difficulty}
     Terrain: {state.terrain}
 
+    Existing Prose:
+    {existing_narrative}
+    
+    User Requirements (May contain edit requests): {state.requirements or 'None'}
+
     Guidelines:
     - Write in an engaging, cinematic style.
     - The "description" should be thrilling and set the stakes.
     - The "background" should cover the lore and how the core conflict came to be.
     - Make sure the prose strictly adheres to the facts in the Campaign Plan. Do not hallucinate new major villains or locations.
+
+    CRITICAL EDITING RULES:
+    1. If "Existing Prose" is provided, your job is to UPDATE it to reflect any changes in the Campaign Plan or User Requirements. 
+    2. Keep the exact same tone, style, length, and structure as the Existing Prose. Do NOT rewrite the entire story from scratch. Only alter the specific words and sentences necessary to accommodate the new facts (like swapping out a villain's name).
+    3. If no Existing Prose is provided, write it from scratch using an engaging, cinematic style.
     """
     
     # We use the higher temperature model here for better creative writing
@@ -272,20 +293,50 @@ def narrative_writer_node(state: CampaignState):
         "rewards": content.rewards
     }
 
-# --- Graph Construction ---
+# Allow smart routing so that agent can call the right node
+def route_step(state: CampaignState):
+    """A simple router to determine which node to execute based on the current state."""
+    if not state.campaign_plan:
+        return "PlannerNode"
+    if not state.party_details:
+        return "PartyCreationNode"
+    
+    prompt = f"""Analyze the user's latest request: "{state.requirements}"
+    
+    Where should we route the graph?
+    - "PlannerNode": If they want to change the plot, villain, setting, or core conflict.
+    - "PartyCreationNode": If they want to change a character's name, race, class, stats, or party composition.
+    - "NarrativeWriterNode": If they just want to change the tone of the writing, or if no specific edits were requested.
+    """
 
+    decision = model.with_structured_output(RouteDecision).invoke(prompt)
+    return decision.target_node
+
+# --- Graph Construction ---
 campaign_graph = StateGraph(CampaignState)
 
 campaign_graph.add_node("PlannerNode", planner_node)
 campaign_graph.add_node("PartyCreationNode", party_creation_node)
 campaign_graph.add_node("NarrativeWriterNode", narrative_writer_node)
 
-campaign_graph.add_edge(START, "PlannerNode")
+# Add conditional router to restart from where we left off
+campaign_graph.add_conditional_edges(
+    START, 
+    route_step,
+    {
+        "PlannerNode": "PlannerNode",
+        "PartyCreationNode": "PartyCreationNode",
+        "NarrativeWriterNode": "NarrativeWriterNode"
+    }
+)
+
+# Sequential steps after the initial routing
 campaign_graph.add_edge("PlannerNode", "PartyCreationNode")
 campaign_graph.add_edge("PartyCreationNode", "NarrativeWriterNode")
 campaign_graph.add_edge("NarrativeWriterNode", END)   
 
-app = campaign_graph.compile()
+memory = MemorySaver()
+app = campaign_graph.compile(checkpointer=memory)
 
 def main():
     """Test the campaign generator"""
