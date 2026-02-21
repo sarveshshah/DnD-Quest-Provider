@@ -26,12 +26,19 @@ writer_model = ChatGoogleGenerativeAI(
 
 # --- Schemas ---
 
+class CombatAction(BaseModel):
+    name: str = Field(description="Name of attack or spell (e.g., Longsword, Fire Bolt)")
+    stats: str = Field(description="MANDATORY COMBAT MATH. You MUST calculate and write the to-hit bonus and damage dice based on their ability scores (e.g., '+5 to hit | 1d8+3 Slashing'). DO NOT leave this blank.")
+
 class Character(BaseModel):
+    # Basic Attributes
     model_config = ConfigDict(populate_by_name=True)
     name: str = Field(description="Character name")
     race: str = Field(description="Character race")
     class_name: str = Field(alias="class", description="Character class")
     level: int = Field(description="Character level", ge=1)
+
+    # Personality & Backstory
     backstory_hook: Optional[str] = Field(default=None, description="Short backstory hook")
     personality_traits: list[str] = Field(default_factory=list, description="Key personality traits")
     ideals: Optional[str] = Field(default=None, description="Ideals that drive the character")
@@ -39,10 +46,17 @@ class Character(BaseModel):
     flaws: Optional[str] = Field(default=None, description="Notable flaws")
     alignment: str = Field(description="D&D alignment (e.g., Chaotic Good, Lawful Evil)")
     flavor_quote: str = Field(description="A short, in-character quote that sums up their personality")
+
+    # Combat & Abilities
+    hp: int = Field(description="Max hit points calculated for their level and class")
+    ac: int = Field(description="Armor Class based on their gear")
+    combat_actions: list[CombatAction] = Field(description="List of proficient skills WITH their total bonus (e.g., 'Arcana +7', 'Insight +5')")
     ability_scores: dict[str, int] = Field(description="A dictionary of standard D&D stats (STR, DEX, CON, INT, WIS, CHA) generated using standard array or point buy.")
+    skills: Optional[str] = Field(default=None, description="Notable skills")
+
+    # Items
     inventory: Optional[str] = Field(default=None, description="Key items or equipment")
     weapons: Optional[str] = Field(default=None, description="Primary weapons")
-    skills: Optional[str] = Field(default=None, description="Notable skills")
 
 class PartyDetails(BaseModel):
     party_name: str = Field(description="Name of the party")
