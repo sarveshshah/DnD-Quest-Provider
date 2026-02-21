@@ -1,6 +1,6 @@
 from contextlib import suppress
 from typing import Optional, Literal
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_validator
 
 from langchain_core.tools import tool, ToolException
 from langgraph.graph import StateGraph, START, END
@@ -9,6 +9,7 @@ from langchain_community.tools import DuckDuckGoSearchResults
 from langchain_community.retrievers import WikipediaRetriever
 
 from dotenv import load_dotenv
+import re
 load_dotenv()
 
 # Define model (Using Gemini 2.5 Pro or your preferred capable model)
@@ -30,6 +31,14 @@ class CombatAction(BaseModel):
     name: str = Field(description="Name of attack or spell (e.g., Longsword, Fire Bolt)")
     stats: str = Field(description="MANDATORY COMBAT MATH. You MUST calculate and write the to-hit bonus and damage dice based on their ability scores (e.g., '+5 to hit | 1d8+3 Slashing'). DO NOT leave this blank.")
 
+    @field_validator("stats")
+    @classmethod
+    def validate_stats(cls, v):
+        """Internal function to ensure the stats field includes calculated to-hit bonus and damage."""
+        if not v or len(v.strip()) < 3 or not re.search(r'[+\-]?\d+\s*(?:to hit|d\d+[+\-]?\d*)?', v):
+            raise ValueError("Stats must include calculated to-hit bonus and damage (e.g., '+5 to hit | 1d8+3 Slashing').")
+        return v
+
 class Character(BaseModel):
     # Basic Attributes
     model_config = ConfigDict(populate_by_name=True)
@@ -50,13 +59,23 @@ class Character(BaseModel):
     # Combat & Abilities
     hp: int = Field(description="Max hit points calculated for their level and class")
     ac: int = Field(description="Armor Class based on their gear")
-    combat_actions: list[CombatAction] = Field(description="List of proficient skills WITH their total bonus (e.g., 'Arcana +7', 'Insight +5')")
-    ability_scores: dict[str, int] = Field(description="A dictionary of standard D&D stats (STR, DEX, CON, INT, WIS, CHA) generated using standard array or point buy.")
-    skills: Optional[str] = Field(default=None, description="Notable skills")
 
+    combat_actions: list[CombatAction] = Field(
+        default_factory=list, 
+        description="List of equipped weapons or offensive spells. MUST include the name and calculated stats (e.g., '+5 to hit | 1d8+3 Slashing')."
+    )    
+    
+    ability_scores: dict[str, int] = Field(description="A dictionary of standard D&D stats (STR, DEX, CON, INT, WIS, CHA) generated using standard array or point buy.")
+    
+    skills: list[str] = Field(
+        default_factory=list, 
+        description="List of proficient skills with their total bonus (e.g., 'Arcana +7', 'Stealth +5')"
+    )
     # Items
-    inventory: Optional[str] = Field(default=None, description="Key items or equipment")
-    weapons: Optional[str] = Field(default=None, description="Primary weapons")
+    inventory: list[str] = Field(
+        default_factory=list, 
+        description="Key items, adventuring gear, or trinkets (Do not include equipped weapons here)"
+    )
 
 class PartyDetails(BaseModel):
     party_name: str = Field(description="Name of the party")
@@ -200,7 +219,7 @@ def party_creation_node(state: CampaignState):
 
     CRITICAL CHARACTER CREATION RULES:
     1. READ THE USER REQUIREMENTS CAREFULLY. If the user asks to play as specific existing fictional characters, celebrities, or pop-culture icons (e.g., "Luke Skywalker", "Sherlock Holmes"), YOU MUST USE THEIR EXACT NAMES. Do not rename them.
-    2. Adapt these requested characters into the 5e D&D ruleset (e.g., Luke as a Psi Warrior Fighter or Paladin, Sherlock as an Inquisitive Rogue).
+    2. Adapt these requested characters into the 5e D&D ruleset (e.g., Luke as a Psi Warrior Fighter or Paladin, Sherlock as an Inquisitive Rogue). But DO NOT RENAME THEM.
     3. For any remaining empty slots, generate unique, original characters that fit the campaign theme to reach the Target Size of {party_size}.
     """
 

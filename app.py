@@ -130,7 +130,7 @@ async def generate_campaign(state: dict):
                                 plot_bullets = "\n".join([f"- {p}" for p in plan.plot_points])
                                 locations_bullets = "\n".join([f"- {l}" for l in plan.key_locations])
                                 
-                                clean_markdown = f"### 🧠 DM's Notes\n_{plan.thought_process}_\n\n**Villain:** {plan.primary_antagonist}\n**Conflict:** {plan.core_conflict}\n\n**Key Locations:**\n{locations_bullets}\n\n**Plot Outline:**\n{plot_bullets}\n\n**Loot:** {plan.loot_concept}"
+                                clean_markdown = f"### DM's Notes\n_{plan.thought_process}_\n\n**Villain:** {plan.primary_antagonist}\n**Conflict:** {plan.core_conflict}\n\n**Key Locations:**\n{locations_bullets}\n\n**Plot Outline:**\n{plot_bullets}\n\n**Loot:** {plan.loot_concept}"
                                 step.output = clean_markdown
                             else:
                                 step.output = "Thinking..."
@@ -544,28 +544,32 @@ def format_campaign_output(result: dict) -> str:
             # Grouped Mechanics
             mechanics = []
             
+            # Skills are now guaranteed to be a list by the Pydantic schema
             if char.get('skills'): 
                 sk = char['skills']
                 sk_str = ", ".join(sk) if isinstance(sk, list) else str(sk)
                 mechanics.append(f"**Skills:** {sk_str}")
             
-            # Integrated the robust combat_actions parser here
+            # All attacks (weapons/spells) flow purely through combat_actions now
             if char.get('combat_actions'):
                 ca = char['combat_actions']
                 ca_strs = []
                 for action in ca:
-                    if isinstance(action, str):
-                        ca_strs.append(action)
-                    elif isinstance(action, dict):
-                        a_name = action.get('name', '').strip()
-                        a_stats = action.get('stats', action.get('damage', action.get('description', ''))).strip()
+                    # Handles the strict CombatAction dict schema
+                    if isinstance(action, dict):
+                        a_name = action.get('name', 'Unknown Attack').strip()
+                        a_stats = action.get('stats', '').strip()
                         ca_strs.append(f"{a_name} ({a_stats})" if a_stats else a_name)
+                    # Fallback just in case you have older cached session data
+                    elif isinstance(action, str):
+                        ca_strs.append(action)
+                
                 if ca_strs:
                     mechanics.append(f"**Combat:** {', '.join(ca_strs)}")
-            # Fallback just in case the LLM uses the old 'weapons' key
-            elif char.get('weapons'):
-                mechanics.append(f"**Weapons:** {char['weapons']}")
+            
+            # The elif char.get('weapons'): block has been completely removed!
                 
+            # Inventory is now guaranteed to be a list
             if char.get('inventory'):
                 inv = char['inventory']
                 inv_str = ", ".join(inv) if isinstance(inv, list) else str(inv)
