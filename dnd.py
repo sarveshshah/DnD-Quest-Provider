@@ -8,10 +8,16 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_community.tools import DuckDuckGoSearchResults
 from langchain_community.retrievers import WikipediaRetriever
 
+import asyncio
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
+from langchain_mcp_adapters.tools import load_mcp_tools
+from langchain.agents import create_agent
+
 from langgraph.checkpoint.memory import MemorySaver
 
 from dotenv import load_dotenv
-import re
+import sys
 
 load_dotenv()
 
@@ -134,39 +140,7 @@ def search_wikipedia(query: str) -> str:
         return "No Wikipedia results found."
     return "\n\n".join([f"Title: {doc.metadata.get('title', 'Unknown')}\nSummary: {doc.page_content.strip()}" for doc in docs])
 
-# --- Helper Functions ---
-
-def _normalize_name(name: str) -> str:
-    return name.strip().lower()
-
-# def _merge_characters(existing: list[Character], generated: list[Character], party_size: int, roster_locked: bool) -> list[Character]:
-#     merged: list[Character] = []
-#     seen: set[str] = set()
-
-#     def add_chars(chars: list[Character]) -> None:
-#         for character in chars:
-#             key = _normalize_name(character.name)
-#             if key and key not in seen:
-#                 merged.append(character)
-#                 seen.add(key)
-
-#     if roster_locked:
-#         add_chars(existing)
-#         add_chars(generated)
-#     else:
-#         add_chars(generated)
-#         add_chars(existing)
-
-#     if len(merged) > party_size:
-#         merged = merged[:party_size]
-
-#     while len(merged) < party_size:
-#         merged.append(Character(name=f"TBD Adventurer {len(merged) + 1}", race="Unknown", class_name="Adventurer", level=1))
-
-#     return merged
-
 # --- Nodes ---
-
 def planner_node(state: CampaignState):
     """Node 1: Establishes the facts and structured outline of the campaign."""
     search_query = f"D&D quest ideas for a {state.difficulty or 'Medium'} campaign in {state.terrain or 'Mixed Terrain'}"
@@ -187,6 +161,9 @@ def planner_node(state: CampaignState):
     - Difficulty: {state.difficulty}
     - User Requirements: {state.requirements or 'None'}
 
+    ### EXISTING PLAN (Reference for Edits) ###
+    {existing_plan}
+
     Reference Material:
     {search_results}
     {wiki_results}
@@ -194,55 +171,104 @@ def planner_node(state: CampaignState):
     Analyze the requirements and create a strict CampaignPlan. Ensure the boss, plot points, and locations make sense together.
 
     CRITICAL RULES:
-    1. If an "Existing Plan" is provided, you are in STRICT EDITING MODE. Identify exactly what the user wants to change (e.g., swapping a villain's name). Then, ONLY modify the specific elements requested by the user and keep all other plot points, locations, and conflicts exactly the same. Do NOT regenerate the whole plan.
-    2. 2. THE COPY-PASTE MANDATE: For every single field you are NOT explicitly asked to change (core_conflict, plot_points, factions_involved, key_locations, loot_concept), you MUST copy the array or string EXACTLY character-for-character from the Existing Plan. Do not paraphrase. Do not adjust the plot to fit the new name.
-    2. If no Existing Plan is provided, analyze the requirements and create a strict CampaignPlan from scratch.
+    1. EDITING MODE: If an "Existing Plan" is provided, ONLY modify the specific elements requested (e.g., changing a name). 
+    2. THE COPY-PASTE MANDATE: For every field NOT requested to change, copy the content EXACTLY from the Existing Plan. Do not paraphrase or "improve" it.
+    3. COLD START: If no Existing Plan is provided, create a brand new CampaignPlan from scratch.
     """
     structured_llm = model.with_structured_output(CampaignPlan)
     plan = structured_llm.invoke(prompt)
     
     return {"campaign_plan": plan}
 
-def party_creation_node(state: CampaignState):
+async def party_creation_node(state: CampaignState):
     """Node 2: Builds the party based on the campaign plan."""
     party_name = state.party_details.party_name if state.party_details else "Not Provided"
     party_size = state.party_details.party_size if state.party_details else 4
     existing_characters = state.party_details.characters if state.party_details else []
-    # remaining_slots = max(party_size - len(existing_characters), 0)
-    # roster_locked = state.roster_locked
-
     plan_context = state.campaign_plan.model_dump_json(indent=2) if state.campaign_plan else "No plan available."
 
-    prompt = prompt = f"""You are a D&D Party Architect. Create or edit a party for this specific campaign plan:
-    {plan_context}
+    server_params = StdioServerParameters(
+        command=sys.executable,
+        args=["dnd-mcp/dnd_mcp_server.py"]
+    )
 
-    Party Name: {party_name}
-    Target Size: {party_size}
-    User Requirements (May contain edit requests): {state.requirements or 'None'}
+    async with stdio_client(server_params) as (read, write):
+        async with ClientSession(read, write) as session:
+            # Load MCP Tools
+            mcp_tools = await load_mcp_tools(session)
+
+            research_prompt = f"""You are a D&D Rules Expert.
+            Campaign Plan: {plan_context}
+            Party Size: {party_size}
+            Existing Characters: {existing_characters}
+            Requirements: {state.requirements}
+
+            Use your tools to look up exact starting gear, spells, and stats for this party.
+            Provide a detailed text summary of each character including combat bonuses."""
+
+            research_agent = create_agent(
+                model = model,
+                tools = mcp_tools,
+                system_prompt = research_prompt
+            )
+
+            research_result = await research_agent.ainvoke({
+                "message": [("user", "Research the exact starting stats, gear, and spells for each character based on their class and level. Provide a detailed text summary of each character including combat bonuses.")]
+            })
+
+            research_facts = research_result["messages"][-1].content
+            print(research_facts)
+
+    extraction_prompt = f"""
+    Convert these D&D character facts into the required JSON schema.
+    Maintain all weapon math and spell details exactly.
     
-    Current Party Roster:
-    {existing_characters}
-
-    CRITICAL CHARACTER CREATION RULES:
-    1. READ THE USER REQUIREMENTS CAREFULLY. If the user asks to edit, rename, or change an existing character, you MUST apply those changes!
-    2. Output the COMPLETE party roster of {party_size} characters. Copy any unedited characters exactly as they were, and include your modified characters or new additions.
-    3. COMBAT MATH: You MUST calculate accurate 'to-hit' bonuses, damage, or Spell Save DCs for every item in the `weapons` and `spells` lists. 
-    4. MAGIC USERS ONLY: If a character's class does not use magic, leave their `spells` list completely empty.
+    Data: {research_facts}
     """
 
     structured_llm = model.with_structured_output(PartyDetails)
-    new_party_details = structured_llm.invoke(prompt)
+    new_party_details = structured_llm.invoke(extraction_prompt)
     
+    # Standard cleanup
     new_party_details.party_name = party_name
     new_party_details.party_size = party_size
-
     new_party_details.characters = new_party_details.characters[:party_size]
-    while len(new_party_details.characters) < party_size:
-        new_party_details.characters.append(
-            Character(name=f"TBD Adventurer {len(new_party_details.characters) + 1}", race="Unknown", class_name="Adventurer", level=1)
-        )
     
     return {"party_details": new_party_details.model_dump(by_alias=True)}
+
+            
+    # plan_context = state.campaign_plan.model_dump_json(indent=2) if state.campaign_plan else "No plan available."
+
+    # prompt = prompt = f"""You are a D&D Party Architect. Create or edit a party for this specific campaign plan:
+    # {plan_context}
+
+    # Party Name: {party_name}
+    # Target Size: {party_size}
+    # User Requirements (May contain edit requests): {state.requirements or 'None'}
+    
+    # Current Party Roster:
+    # {existing_characters}
+
+    # CRITICAL CHARACTER CREATION RULES:
+    # 1. READ THE USER REQUIREMENTS CAREFULLY. If the user asks to edit, rename, or change an existing character, you MUST apply those changes!
+    # 2. Output the COMPLETE party roster of {party_size} characters. Copy any unedited characters exactly as they were, and include your modified characters or new additions.
+    # 3. COMBAT MATH: You MUST calculate accurate 'to-hit' bonuses, damage, or Spell Save DCs for every item in the `weapons` and `spells` lists. 
+    # 4. MAGIC USERS ONLY: If a character's class does not use magic, leave their `spells` list completely empty.
+    # """
+
+    # structured_llm = model.with_structured_output(PartyDetails)
+    # new_party_details = structured_llm.invoke(prompt)
+    
+    # new_party_details.party_name = party_name
+    # new_party_details.party_size = party_size
+
+    # new_party_details.characters = new_party_details.characters[:party_size]
+    # while len(new_party_details.characters) < party_size:
+    #     new_party_details.characters.append(
+    #         Character(name=f"TBD Adventurer {len(new_party_details.characters) + 1}", race="Unknown", class_name="Adventurer", level=1)
+    #     )
+    
+    # return {"party_details": new_party_details.model_dump(by_alias=True)}
 
 def narrative_writer_node(state: CampaignState):
     """Node 3: Takes the structured facts and writes the final, high-quality Markdown prose."""
