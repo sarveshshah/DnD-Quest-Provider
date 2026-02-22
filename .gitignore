@@ -10,3 +10,4 @@ context.md
 ./resources/**
 resources/Handbook.pdf
 exit_reason.txt
+logs/dnd_mcp_server.log

@@ -89,7 +89,7 @@ def _coerce_difficulty(d_str: str) -> str:
     return next((v.title() for v in valid if v in d_title), "Medium")
 
 async def generate_campaign(state: dict):
-    if not state["party_name"]: state["party_name"] = "The Nameless Heroes"
+    if not state.get("party_name"): state["party_name"] = "Not Provided"
     if not state["party_size"]: state["party_size"] = 4
     if not state["terrain"]: state["terrain"] = "Forest"
     if not state["difficulty"]: state["difficulty"] = "Medium"
@@ -126,6 +126,8 @@ async def generate_campaign(state: dict):
             else:
                 parent_step.name = "📜 Consulting the ancient tomes and penning the lore..."
             await parent_step.update()
+
+            party_creation_step = None
             
             # Go through the stream of updates from the campaign generator and update the parent step accordingly, while also creating child steps for each node update
             async for output in campaign_generator.astream(initial_graph_state, config = config):
@@ -152,23 +154,43 @@ async def generate_campaign(state: dict):
                         await parent_step.update()
                             
                     elif node_name == "PartyCreationNode":
-                        async with cl.Step(name="Drafting the roster...", parent_id=parent_step.id) as step:
-                            party = node_state.get('party_details')
-                            if party:
-                                party_name = party.get('party_name', 'The Nameless')
-                                chars = party.get('characters', [])
-                                char_bullets = "\n".join([f"- **{c.get('name')}**: Level {c.get('level')} {c.get('race')} {c.get('class')}" for c in chars])
-                                step.output = f"### 📝 Roster: {party_name}\n\n{char_bullets}"
+                        if party_creation_step is None:
+                            party_creation_step = cl.Step(name="⚔️ Rolling characters...", parent_id=parent_step.id)
+                            await party_creation_step.send()
+                            
+                        party = node_state.get('party_details')
+                        if party:
+                            party_name = party.get('party_name', 'The Nameless')
+                            chars = party.get('characters', [])
+                            char_bullets = "\n".join([f"- **{c.get('name')}**: Level {c.get('level')} {c.get('race')} {c.get('class')}" for c in chars])
+                            party_creation_step.output = f"### 📝 Roster: {party_name}\n\n{char_bullets}"
+                            
+                            # Only change the name to "Party Assembled" when it's fully done
+                            party_creation_step.name = "⚔️ Party Assembled"
+                            await party_creation_step.update()
+                            
+                            # Preemptively update the parent step for the NEXT node's execution
+                            parent_step.name = "📜 Consulting the ancient tomes and penning the lore..."
+                            await parent_step.update()
+                        else:
+                            msgs = node_state.get('messages', [])
+                            if msgs and hasattr(msgs[-1], 'tool_calls') and msgs[-1].tool_calls:
+                                tools_called = [tc['name'] for tc in msgs[-1].tool_calls]
+                                tools_str = "\n".join([f"- 🔍 Asking the archives about: `{name}`..." for name in tools_called])
+                                party_creation_step.output = f"Researching arcane secrets and armories...\n\n{tools_str}"
                             else:
-                                step.output = "Rolling characters..."
-                                
-                            step.name = "⚔️ Party Assembled"
-                            await step.update()
+                                party_creation_step.output = "Gathering stats and equipment... Pondering the next move..."
+                            await party_creation_step.update()
                             
-                        # Preemptively update the parent step for the NEXT node's execution
-                        parent_step.name = "📜 Consulting the ancient tomes and penning the lore..."
-                        await parent_step.update()
-                            
+                    elif node_name == "MCPToolNode":
+                        if party_creation_step:
+                            msgs = node_state.get('messages', [])
+                            if msgs:
+                                tool_names = [m.name for m in msgs if hasattr(m, 'name') and m.name]
+                                if tool_names:
+                                    tools_str = "\n".join([f"- 📖 Reading knowledge from `{name}`..." for name in tool_names])
+                                    party_creation_step.output = f"Reading responses from the D&D APIs...\n\n{tools_str}"
+                                    await party_creation_step.update()
                     elif node_name == "NarrativeWriterNode":
                         async with cl.Step(name="Writing the epic...", parent_id=parent_step.id) as step:
                             step.output = f"**Title chosen:** {node_state.get('title')}\n\nReviewing lore and formatting markdown..."
@@ -383,7 +405,7 @@ async def on_chat_start():
     cl.user_session.set("chat_history", [])
 
     settings = await cl.ChatSettings([
-        TextInput(id = "party_name", label = "Party Name", placeholder = "The Nameless", tooltip = "What is the name of your adventuring party? Leave it empty if you'd like AI to come up with one."),
+        TextInput(id = "party_name", label = "Party Name", placeholder = "The Nameless Heroes", tooltip = "What is the name of your adventuring party? Leave it empty if you'd like AI to come up with one."),
         Slider(id = "party_size", label = "Party Size", min = 1, max = 8, step = 1, initial = 4, tooltip = "Number of adventurers in the party. If you list specific characters, this will update to match that number."),
         Select(id = "terrain", label = "Terrain", values = ["Arctic", "Coast", "Desert", "Forest", "Grassland", "Mountain", "Swamp", "Underdark"], initial_index=3),
         Select(id = "difficulty", label = "Difficulty", values = ["Easy", "Medium", "Hard", "Deadly"], initial_index=1),   

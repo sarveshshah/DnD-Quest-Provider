@@ -1,14 +1,16 @@
-from contextlib import suppress
-from typing import Optional, Literal
+from contextlib import suppress, asynccontextmanager
+from typing import Optional, Literal, Annotated, Any
 from pydantic import BaseModel, Field, ConfigDict
-
+import operator
 
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import MemorySaver
+from langgraph.prebuilt import ToolNode, tools_condition
 
 from langchain_core.tools import tool, ToolException
 from langchain_mcp_adapters.tools import load_mcp_tools
 from langchain.agents import create_agent
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, BaseMessage
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_community.tools import DuckDuckGoSearchResults
@@ -20,6 +22,22 @@ import sys
 
 from mcp.client.sse import sse_client
 from mcp.client.session import ClientSession
+
+@asynccontextmanager
+async def mcp_server_session():
+    """Reusable context manager for MCP tool connections."""
+    mcp_tools = []
+    try:
+        async with sse_client("http://localhost:8000/sse") as session_streams:
+            async with ClientSession(session_streams[0], session_streams[1]) as session:
+                await session.initialize()
+                mcp_tools = await load_mcp_tools(session)
+                yield mcp_tools
+    except ExceptionGroup:
+        pass # Ignore TaskGroup teardown errors from SSE client
+    except Exception as e:
+        print(f"MCP Connection Error: {e}", file=sys.stderr)
+        yield mcp_tools
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -113,6 +131,10 @@ class CampaignContent(BaseModel):
 
 class CampaignState(BaseModel):
     """The unified state passed through the LangGraph."""
+
+    # Message History
+    messages: Annotated[list[BaseMessage], operator.add] = Field(default_factory=list)
+
     # Inputs
     terrain: Optional[Literal["Arctic", "Coast", "Desert", "Forest", "Grassland", "Mountain", "Swamp", "Underdark"]] = None
     difficulty: Optional[Literal["Easy", "Medium", "Hard", "Deadly"]] = None
@@ -130,7 +152,6 @@ class CampaignState(BaseModel):
     rewards: Optional[str] = None
 
 # --- Tools ---
-
 @tool
 def search_internet(query: str) -> str:
     """Search the internet for D&D campaign inspiration."""
@@ -187,141 +208,106 @@ def planner_node(state: CampaignState):
     return {"campaign_plan": plan}
 
 async def party_creation_node(state: CampaignState):
-    """Node 2: Builds the party based on the campaign plan."""
+    """Node 2: Builds the party, potentially calling MCP tools if needed."""
     party_name = state.party_details.party_name if state.party_details else "Not Provided"
     party_size = state.party_details.party_size if state.party_details else 4
     existing_characters = state.party_details.characters if state.party_details else []
     plan_context = state.campaign_plan.model_dump_json(indent=2) if state.campaign_plan else "No plan available."
 
-    def _run_mcp_research():
-        async def _inner():
-            try:
-                async with sse_client("http://localhost:8000/sse") as session_streams:
-                    async with ClientSession(session_streams[0], session_streams[1]) as session:
-                        await session.initialize()
-                        
-                        # Load MCP Tools
-                        mcp_tools = await load_mcp_tools(session)
+    mcp_tools = []
+    async with mcp_server_session() as tools:
+        if tools:
+            mcp_tools = tools
 
-                        research_prompt = f"""You are a D&D Rules Expert.
-                        Campaign Plan: {plan_context}
-                        Party Size: {party_size}
-                        Existing Characters: {existing_characters}
-                        Requirements: {state.requirements}
+    # Bind the MCP tools to our model outside the SSE context!
+    model_with_tools = model.bind_tools(mcp_tools) if mcp_tools else model
 
-                        Use your tools to look up exact starting gear, spells, and stats for this party.
-                        Provide a detailed text summary of each character including combat bonuses."""
-
-                        # Direct Tool Calling Logic
-                        messages = [
-                            ("system", research_prompt),
-                            ("user", "Research the exact starting stats, gear, and spells for each character based on their class and level. Provide a detailed text summary of each character including combat bonuses.")
-                        ]
-                        
-                        model_with_tools = model.bind_tools(mcp_tools)
-                        tool_map = {tool.name: tool for tool in mcp_tools}
-                        
-                        try:
-                            response = await model_with_tools.ainvoke(messages)
-                            messages.append(response)
-                            
-                            while response.tool_calls:
-                                for tool_call in response.tool_calls:
-                                    tool_name = tool_call["name"]
-                                    tool_args = tool_call["args"]
-                                    tool_id = tool_call["id"]
-                                    
-                                    print(f"Executing tool {tool_name}...", file=sys.stderr)
-                                    
-                                    if tool_name in tool_map:
-                                        tool_result = await tool_map[tool_name].ainvoke(tool_args)
-                                        messages.append(
-                                            {"role": "tool", "name": tool_name, "content": str(tool_result), "tool_call_id": tool_id}
-                                        )
-                                    else:
-                                        messages.append(
-                                            {"role": "tool", "name": tool_name, "content": f"Error: Tool {tool_name} not found", "tool_call_id": tool_id}
-                                        )
-                                
-                                response = await model_with_tools.ainvoke(messages)
-                                messages.append(response)
-                            
-                            return response.content
-                        except BaseException as inner_e:
-                            print(f"!!! REAL EXCEPTION CAUGHT INSIDE CONTEXT !!! : {type(inner_e)} - {inner_e}", file=sys.stderr)
-                            traceback.print_exc()
-                            return "Fallback: Character specs generated without MCP due to an error."
-            except ExceptionGroup as eg:
-                print("Ignored TaskGroup teardown error:", eg, file=sys.stderr)
-                traceback.print_exception(type(eg), eg, eg.__traceback__)
-                return "Fallback: Character specs generated without MCP due to an error."
-            except Exception as e:
-                print("MCP invocation error:", e, file=sys.stderr)
-                traceback.print_exc()
-                return "Fallback: Character specs generated without MCP due to an error."
-        return asyncio.run(_inner())
-
-    research_facts = await asyncio.to_thread(_run_mcp_research)
-    print(research_facts)
-
-    extraction_prompt = f"""
-    Convert these D&D character facts into the required JSON schema.
-    Maintain all weapon math and spell details exactly.
+    system_prompt = f"""You are a master D&D Party Architect and Rules Expert.
+    Campaign World Context: {plan_context}
+    Party Name: {"Generate an epic, creative name fitting the lore" if party_name == "Not Provided" else party_name}
+    Party Size: {party_size}
+    Existing Characters: {existing_characters}
+    Requirements: {state.requirements}
     
-    Data: {research_facts}
+    CRITICAL TOOL & CREATIVITY MANDATE:
+    1. Use your MCP tools (like 'get_class_starting_equipment', 'filter_spells_by_level', etc.) to research accurate starting gear and spells for these characters.
+    2. GO BEYOND STATS: Tie their backstories, ideals, and bonds directly into the Campaign World Context. Why are they involved in this specific conflict?
+    3. Generate a highly creative and unique `flavor_quote` for each character based on their quirks or gear.
+    4. Calculate accurate combat stats ('to-hit' and 'damage') for all acquired weapons and spells based on their ability scores.
     """
 
-    structured_llm = model.with_structured_output(PartyDetails)
-    new_party_details = structured_llm.invoke(extraction_prompt)
-    
-    # Standard cleanup
-    new_party_details.party_name = party_name
-    new_party_details.party_size = party_size
-    new_party_details.characters = new_party_details.characters[:party_size]
+    # Format messages
+    if not state.messages:
+        messages = [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content="Please research the exact starting stats, gear, and spells for each character based on their class and level.")
+        ]
+    else:
+        messages = [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content="Please research the exact starting stats, gear, and spells for each character based on their class and level.")
+        ] + state.messages
 
-    while len(new_party_details.characters) < party_size:
-        new_party_details.characters.append(
-            Character(name=f"TBD Adventurer {len(new_party_details.characters) + 1}", race="Unknown", class_name="Adventurer", level=1)
-        )
-    
-    return {"party_details": new_party_details.model_dump(by_alias=True)}
+    print(f"DEBUG: Checking {len(state.messages) if state.messages else 0} messages.", file=sys.stderr)
+    if state.messages:
+        print(f"DEBUG: Last message type: {state.messages[-1].type}", file=sys.stderr)
 
+    # Check if we just finished using tools
+    just_finished_tools = False
+    if state.messages and state.messages[-1].type == "tool":
+        just_finished_tools = True
+
+    # Generate!
+    try:
+        if just_finished_tools:
+            # Force Pydantic output!
+            structured_llm = model.with_structured_output(PartyDetails)
+            final_party = await structured_llm.ainvoke(messages)
             
-    # plan_context = state.campaign_plan.model_dump_json(indent=2) if state.campaign_plan else "No plan available."
+            # Standard cleanup
+            if party_name != "Not Provided":
+                final_party.party_name = party_name
+                
+            final_party.party_size = party_size
+            final_party.characters = final_party.characters[:party_size]
 
-    # prompt = prompt = f"""You are a D&D Party Architect. Create or edit a party for this specific campaign plan:
-    # {plan_context}
+            while len(final_party.characters) < party_size:
+                final_party.characters.append(
+                    Character(name=f"TBD Adventurer {len(final_party.characters) + 1}", race="Unknown", class_name="Adventurer", level=1)
+                )
+            
+            return {
+                "messages": [AIMessage(content="Generated final PartyDetails JSON.")],
+                "party_details": final_party.model_dump(by_alias=True)
+            }
+        else:
+            # Let it decide whether to use tools or write text
+            response = await model_with_tools.ainvoke(messages)
+            return {"messages": [response]} 
+    except Exception as e:
+        print(f"Model Invocation Error: {e}", file=sys.stderr)
+        return {"messages": [AIMessage(content="Tool connection failed, I will generate default characters.")]}
 
-    # Party Name: {party_name}
-    # Target Size: {party_size}
-    # User Requirements (May contain edit requests): {state.requirements or 'None'}
-    
-    # Current Party Roster:
-    # {existing_characters}
-
-    # CRITICAL CHARACTER CREATION RULES:
-    # 1. READ THE USER REQUIREMENTS CAREFULLY. If the user asks to edit, rename, or change an existing character, you MUST apply those changes!
-    # 2. Output the COMPLETE party roster of {party_size} characters. Copy any unedited characters exactly as they were, and include your modified characters or new additions.
-    # 3. COMBAT MATH: You MUST calculate accurate 'to-hit' bonuses, damage, or Spell Save DCs for every item in the `weapons` and `spells` lists. 
-    # 4. MAGIC USERS ONLY: If a character's class does not use magic, leave their `spells` list completely empty.
-    # """
-
-    # structured_llm = model.with_structured_output(PartyDetails)
-    # new_party_details = structured_llm.invoke(prompt)
-    
-    # new_party_details.party_name = party_name
-    # new_party_details.party_size = party_size
-
-    # new_party_details.characters = new_party_details.characters[:party_size]
-    # while len(new_party_details.characters) < party_size:
-    #     new_party_details.characters.append(
-    #         Character(name=f"TBD Adventurer {len(new_party_details.characters) + 1}", race="Unknown", class_name="Adventurer", level=1)
-    #     )
-    
-    # return {"party_details": new_party_details.model_dump(by_alias=True)}
+async def mcp_tool_node(state: CampaignState):
+    result = None
+    async with mcp_server_session() as mcp_tools:
+        if mcp_tools:
+            try:
+                tool_executor = ToolNode(mcp_tools)
+                result = await tool_executor.ainvoke(state)
+            except Exception as e:
+                print(f"Tool Execution Error: {e}", file=sys.stderr)
+        
+    if result is not None:
+        return result
+    return {"messages": []}
 
 def narrative_writer_node(state: CampaignState):
     """Node 3: Takes the structured facts and writes the final, high-quality Markdown prose."""
+
+    # Clear tools messages from previos node
+    state.messages.clear()
+
     plan_context = state.campaign_plan.model_dump_json(indent = 2) if state.campaign_plan else "No plan available."
     party_context = state.party_details.model_dump_json(indent = 2, by_alias = True) if state.party_details else "No party details."
 
@@ -382,11 +368,38 @@ def route_step(state: CampaignState):
     Where should we route the graph?
     - "PlannerNode": If they want to change the plot, villain, setting, or core conflict.
     - "PartyCreationNode": If they want to change a character's name, race, class, stats, or party composition.
-    - "NarrativeWriterNode": If they just want to change the tone of the writing, or if no specific edits were requested.
+    - "NarrativeWriterNode": If they want to change the title, the tone of the writing, or if no specific edits were requested.
     """
 
     decision = model.with_structured_output(RouteDecision).invoke(prompt)
     return decision.target_node
+
+def determine_next_steps(state: CampaignState, current_node: str):
+    """Determine the next steps in the campaign generation process."""
+
+    if current_node == "PlannerNode":
+        return "PartyCreationNode"
+    elif current_node == "PartyCreationNode":
+        if not state.title:
+            return "NarrativeWriterNode"
+    
+        prompt = f"""Did the user request a change to the story, narrative, or TITLE, or just character stats?
+
+        User Request: {state.requirements}
+        
+        Respond with exactly ONE WORD:
+        - "YES" if they explicitly asked for story/plot/narrative/title changes
+        - "NO" if they only want character changes
+        """
+
+
+        wants_story = "YES" in model.invoke(prompt).content.upper()
+        return "NarrativeWriterNode" if wants_story else END
+
+    elif current_node == "NarrativeWriterNode":
+        return END
+
+    return END
 
 # --- Graph Construction ---
 campaign_graph = StateGraph(CampaignState)
@@ -394,6 +407,7 @@ campaign_graph = StateGraph(CampaignState)
 campaign_graph.add_node("PlannerNode", planner_node)
 campaign_graph.add_node("PartyCreationNode", party_creation_node)
 campaign_graph.add_node("NarrativeWriterNode", narrative_writer_node)
+campaign_graph.add_node("MCPToolNode", mcp_tool_node)
 
 # Add conditional router to restart from where we left off
 campaign_graph.add_conditional_edges(
@@ -406,10 +420,41 @@ campaign_graph.add_conditional_edges(
     }
 )
 
-# Sequential steps after the initial routing
-campaign_graph.add_edge("PlannerNode", "PartyCreationNode")
-campaign_graph.add_edge("PartyCreationNode", "NarrativeWriterNode")
-campaign_graph.add_edge("NarrativeWriterNode", END)   
+# Step 2: Dynamic Routing
+campaign_graph.add_conditional_edges(
+    "PlannerNode",
+    lambda state: determine_next_steps(state, "PlannerNode"),
+    {
+        "PartyCreationNode": "PartyCreationNode",
+        "NarrativeWriterNode": "NarrativeWriterNode",
+        END: END
+    }
+)
+
+def route_tools_or_continue(state: CampaignState):
+    """Check if we should route to tools or continue to next step."""
+    messages = state.messages
+    if messages and isinstance(messages[-1], AIMessage) and messages[-1].tool_calls:
+        return "tools"
+    return "done"
+
+# Step 3: Dynamic Routing
+campaign_graph.add_conditional_edges(
+    "PartyCreationNode",
+    route_tools_or_continue,
+    {
+        "tools": "MCPToolNode",
+        "done": "route_next"
+    }
+)
+
+# A fake passthrough node just to let LangGraph compile the route_next edge
+def dummy_route_node(state: CampaignState): return {"messages": []}
+campaign_graph.add_node("route_next", dummy_route_node)
+campaign_graph.add_conditional_edges("route_next", lambda state: determine_next_steps(state, "PartyCreationNode"), {"NarrativeWriterNode": "NarrativeWriterNode", END: END})
+
+campaign_graph.add_edge("MCPToolNode", "PartyCreationNode")
+campaign_graph.add_edge("NarrativeWriterNode", END)
 
 memory = MemorySaver()
 app = campaign_graph.compile(checkpointer=memory)
