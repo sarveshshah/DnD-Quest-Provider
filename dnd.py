@@ -187,37 +187,54 @@ async def party_creation_node(state: CampaignState):
     existing_characters = state.party_details.characters if state.party_details else []
     plan_context = state.campaign_plan.model_dump_json(indent=2) if state.campaign_plan else "No plan available."
 
-    server_params = StdioServerParameters(
-        command=sys.executable,
-        args=["dnd-mcp/dnd_mcp_server.py"]
-    )
+    import sys
+    from mcp.client.sse import sse_client
 
-    async with stdio_client(server_params) as (read, write):
-        async with ClientSession(read, write) as session:
-            # Load MCP Tools
-            mcp_tools = await load_mcp_tools(session)
+    try:
+        async with sse_client("http://localhost:8000/sse") as session_streams:
+            async with ClientSession(session_streams[0], session_streams[1]) as session:
+                await session.initialize()
+                
+                # Load MCP Tools
+                mcp_tools = await load_mcp_tools(session)
 
-            research_prompt = f"""You are a D&D Rules Expert.
-            Campaign Plan: {plan_context}
-            Party Size: {party_size}
-            Existing Characters: {existing_characters}
-            Requirements: {state.requirements}
+                research_prompt = f"""You are a D&D Rules Expert.
+                Campaign Plan: {plan_context}
+                Party Size: {party_size}
+                Existing Characters: {existing_characters}
+                Requirements: {state.requirements}
 
-            Use your tools to look up exact starting gear, spells, and stats for this party.
-            Provide a detailed text summary of each character including combat bonuses."""
+                Use your tools to look up exact starting gear, spells, and stats for this party.
+                Provide a detailed text summary of each character including combat bonuses."""
 
-            research_agent = create_agent(
-                model = model,
-                tools = mcp_tools,
-                system_prompt = research_prompt
-            )
-
-            research_result = await research_agent.ainvoke({
-                "message": [("user", "Research the exact starting stats, gear, and spells for each character based on their class and level. Provide a detailed text summary of each character including combat bonuses.")]
-            })
-
-            research_facts = research_result["messages"][-1].content
-            print(research_facts)
+                from langgraph.prebuilt import create_react_agent
+                research_agent = create_react_agent(
+                    model=model,
+                    tools=mcp_tools,
+                    prompt=research_prompt
+                )
+                try:
+                    research_result = await research_agent.ainvoke(
+                        {"messages": [("user", "Research the exact starting stats, gear, and spells for each character based on their class and level. Provide a detailed text summary of each character including combat bonuses.")]}
+                    )
+                    research_facts = research_result["messages"][-1].content
+                except BaseException as inner_e:
+                    print(f"!!! REAL EXCEPTION CAUGHT INSIDE CONTEXT !!! : {type(inner_e)} - {inner_e}", file=sys.stderr)
+                    import traceback
+                    traceback.print_exc(file=sys.stderr)
+                    research_facts = "Fallback: Character specs generated without MCP due to an error."
+                    if not isinstance(inner_e, Exception):
+                        raise inner_e  # reraise CancelledError gracefully
+    except ExceptionGroup as eg:
+        print("Ignored TaskGroup teardown error:", eg, file=sys.stderr)
+        if 'research_facts' not in locals():
+            research_facts = "Fallback: Character specs generated without MCP due to an error."
+    except Exception as e:
+        print("MCP invocation error:", e, file=sys.stderr)
+        if 'research_facts' not in locals():
+            research_facts = "Fallback: Character specs generated without MCP due to an error."
+        
+    print(research_facts)
 
     extraction_prompt = f"""
     Convert these D&D character facts into the required JSON schema.
@@ -233,6 +250,11 @@ async def party_creation_node(state: CampaignState):
     new_party_details.party_name = party_name
     new_party_details.party_size = party_size
     new_party_details.characters = new_party_details.characters[:party_size]
+
+    while len(new_party_details.characters) < party_size:
+        new_party_details.characters.append(
+            Character(name=f"TBD Adventurer {len(new_party_details.characters) + 1}", race="Unknown", class_name="Adventurer", level=1)
+        )
     
     return {"party_details": new_party_details.model_dump(by_alias=True)}
 
@@ -368,11 +390,12 @@ def main():
     """Test the campaign generator"""
     initial_state = CampaignState(
         terrain="Mountain",
-        difficulty="hard",
+        difficulty="Hard",
         requirements="I want a quest involving a stolen dragon egg and a cult of ice monks.",
         party_details=PartyDetails(party_name="The Frozen Few", party_size=3)
     )
-    final_state = app.invoke(initial_state)
+    config = {"configurable": {"thread_id": "test_1"}}
+    final_state = asyncio.run(app.ainvoke(initial_state, config))
     print(f"Generated Campaign: {final_state.get('title')}")
     print("Plan:", final_state.get('campaign_plan'))
 

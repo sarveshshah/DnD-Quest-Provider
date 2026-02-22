@@ -191,7 +191,10 @@ async def generate_campaign(state: dict):
         await cl.Message(content=formatted_output).send()
         
     except Exception as e:
-        await cl.Message(content=f"**Error generating campaign:** {str(e)}").send()
+        import traceback
+        error_details = traceback.format_exc()
+        print(error_details)
+        await cl.Message(content=f"**Error generating campaign:** {str(e)}\n\n```text\n{error_details}\n```").send()
 
 def format_campaign_output(result: dict) -> str:
     title = result.get('title', 'Epic Adventure')
