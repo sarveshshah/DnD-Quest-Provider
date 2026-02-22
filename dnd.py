@@ -1,51 +1,56 @@
 from contextlib import suppress
 from typing import Optional, Literal
-from pydantic import BaseModel, Field, ConfigDict, field_validator
+from pydantic import BaseModel, Field, ConfigDict
+
+
+from langgraph.graph import StateGraph, START, END
+from langgraph.checkpoint.memory import MemorySaver
 
 from langchain_core.tools import tool, ToolException
-from langgraph.graph import StateGraph, START, END
+from langchain_mcp_adapters.tools import load_mcp_tools
+from langchain.agents import create_agent
+
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_community.tools import DuckDuckGoSearchResults
 from langchain_community.retrievers import WikipediaRetriever
 
 import asyncio
-from mcp import ClientSession, StdioServerParameters
-from mcp.client.stdio import stdio_client
-from langchain_mcp_adapters.tools import load_mcp_tools
-from langchain.agents import create_agent
-
-from langgraph.checkpoint.memory import MemorySaver
-
-from dotenv import load_dotenv
+import traceback
 import sys
 
+from mcp.client.sse import sse_client
+from mcp.client.session import ClientSession
+
+from dotenv import load_dotenv
 load_dotenv()
 
-# Define model (Using Gemini 2.5 Pro or your preferred capable model)
+# Define model (Using Gemini 3.1 Pro or your preferred capable model)
 model = ChatGoogleGenerativeAI(
     model="gemini-2.5-pro",
     temperature=0.2, # Low temperature for planning and extraction
-    verbose=True
+    verbose=False
 )
 
 writer_model = ChatGoogleGenerativeAI(
     model="gemini-2.5-pro",
     temperature=0.7, # Higher temperature for creative writing
-    verbose=True
+    verbose=False
 )
 
 # --- Schemas ---
-
 class RouteDecision(BaseModel):
+    """Determines which node to route to based on the user's latest request"""
     target_node: Literal["PlannerNode", "PartyCreationNode", "NarrativeWriterNode"] = Field(
         description="The node to route the graph to based on the user's request."
     )
 
 class CombatAction(BaseModel):
+    """CombatAction represents either a weapon attack or an offensive spell, including the necessary combat math."""
     name: str = Field(description="Name of attack or spell (e.g., Longsword, Fire Bolt)")
     stats: str = Field(description="MANDATORY COMBAT MATH. You MUST calculate and write the to-hit bonus and damage dice based on their ability scores (e.g., '+5 to hit | 1d8+3 Slashing'). DO NOT leave this blank.")
 
 class Character(BaseModel):
+    """Character schema with detailed attributes, personality, combat stats, and inventory."""
     # Basic Attributes
     model_config = ConfigDict(populate_by_name=True)
     name: str = Field(description="Character name")
@@ -84,6 +89,7 @@ class Character(BaseModel):
     )
 
 class PartyDetails(BaseModel):
+    """Details about the party, including its name, size, and characters."""
     party_name: str = Field(description="Name of the party")
     party_size: int = Field(description="Number of players in the party", ge=1)
     characters: list[Character] = Field(default_factory=list)
@@ -187,53 +193,75 @@ async def party_creation_node(state: CampaignState):
     existing_characters = state.party_details.characters if state.party_details else []
     plan_context = state.campaign_plan.model_dump_json(indent=2) if state.campaign_plan else "No plan available."
 
-    import sys
-    from mcp.client.sse import sse_client
+    def _run_mcp_research():
+        async def _inner():
+            try:
+                async with sse_client("http://localhost:8000/sse") as session_streams:
+                    async with ClientSession(session_streams[0], session_streams[1]) as session:
+                        await session.initialize()
+                        
+                        # Load MCP Tools
+                        mcp_tools = await load_mcp_tools(session)
 
-    try:
-        async with sse_client("http://localhost:8000/sse") as session_streams:
-            async with ClientSession(session_streams[0], session_streams[1]) as session:
-                await session.initialize()
-                
-                # Load MCP Tools
-                mcp_tools = await load_mcp_tools(session)
+                        research_prompt = f"""You are a D&D Rules Expert.
+                        Campaign Plan: {plan_context}
+                        Party Size: {party_size}
+                        Existing Characters: {existing_characters}
+                        Requirements: {state.requirements}
 
-                research_prompt = f"""You are a D&D Rules Expert.
-                Campaign Plan: {plan_context}
-                Party Size: {party_size}
-                Existing Characters: {existing_characters}
-                Requirements: {state.requirements}
+                        Use your tools to look up exact starting gear, spells, and stats for this party.
+                        Provide a detailed text summary of each character including combat bonuses."""
 
-                Use your tools to look up exact starting gear, spells, and stats for this party.
-                Provide a detailed text summary of each character including combat bonuses."""
+                        # Direct Tool Calling Logic
+                        messages = [
+                            ("system", research_prompt),
+                            ("user", "Research the exact starting stats, gear, and spells for each character based on their class and level. Provide a detailed text summary of each character including combat bonuses.")
+                        ]
+                        
+                        model_with_tools = model.bind_tools(mcp_tools)
+                        tool_map = {tool.name: tool for tool in mcp_tools}
+                        
+                        try:
+                            response = await model_with_tools.ainvoke(messages)
+                            messages.append(response)
+                            
+                            while response.tool_calls:
+                                for tool_call in response.tool_calls:
+                                    tool_name = tool_call["name"]
+                                    tool_args = tool_call["args"]
+                                    tool_id = tool_call["id"]
+                                    
+                                    print(f"Executing tool {tool_name}...", file=sys.stderr)
+                                    
+                                    if tool_name in tool_map:
+                                        tool_result = await tool_map[tool_name].ainvoke(tool_args)
+                                        messages.append(
+                                            {"role": "tool", "name": tool_name, "content": str(tool_result), "tool_call_id": tool_id}
+                                        )
+                                    else:
+                                        messages.append(
+                                            {"role": "tool", "name": tool_name, "content": f"Error: Tool {tool_name} not found", "tool_call_id": tool_id}
+                                        )
+                                
+                                response = await model_with_tools.ainvoke(messages)
+                                messages.append(response)
+                            
+                            return response.content
+                        except BaseException as inner_e:
+                            print(f"!!! REAL EXCEPTION CAUGHT INSIDE CONTEXT !!! : {type(inner_e)} - {inner_e}", file=sys.stderr)
+                            traceback.print_exc()
+                            return "Fallback: Character specs generated without MCP due to an error."
+            except ExceptionGroup as eg:
+                print("Ignored TaskGroup teardown error:", eg, file=sys.stderr)
+                traceback.print_exception(type(eg), eg, eg.__traceback__)
+                return "Fallback: Character specs generated without MCP due to an error."
+            except Exception as e:
+                print("MCP invocation error:", e, file=sys.stderr)
+                traceback.print_exc()
+                return "Fallback: Character specs generated without MCP due to an error."
+        return asyncio.run(_inner())
 
-                from langgraph.prebuilt import create_react_agent
-                research_agent = create_react_agent(
-                    model=model,
-                    tools=mcp_tools,
-                    prompt=research_prompt
-                )
-                try:
-                    research_result = await research_agent.ainvoke(
-                        {"messages": [("user", "Research the exact starting stats, gear, and spells for each character based on their class and level. Provide a detailed text summary of each character including combat bonuses.")]}
-                    )
-                    research_facts = research_result["messages"][-1].content
-                except BaseException as inner_e:
-                    print(f"!!! REAL EXCEPTION CAUGHT INSIDE CONTEXT !!! : {type(inner_e)} - {inner_e}", file=sys.stderr)
-                    import traceback
-                    traceback.print_exc(file=sys.stderr)
-                    research_facts = "Fallback: Character specs generated without MCP due to an error."
-                    if not isinstance(inner_e, Exception):
-                        raise inner_e  # reraise CancelledError gracefully
-    except ExceptionGroup as eg:
-        print("Ignored TaskGroup teardown error:", eg, file=sys.stderr)
-        if 'research_facts' not in locals():
-            research_facts = "Fallback: Character specs generated without MCP due to an error."
-    except Exception as e:
-        print("MCP invocation error:", e, file=sys.stderr)
-        if 'research_facts' not in locals():
-            research_facts = "Fallback: Character specs generated without MCP due to an error."
-        
+    research_facts = await asyncio.to_thread(_run_mcp_research)
     print(research_facts)
 
     extraction_prompt = f"""

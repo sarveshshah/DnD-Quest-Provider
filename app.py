@@ -118,15 +118,21 @@ async def generate_campaign(state: dict):
         # 1. Start with an initial "table setting" message
         async with cl.Step(name="🎲 Preparing the table...") as parent_step:
             await parent_step.send()
+            
+            if not initial_graph_state.campaign_plan:
+                parent_step.name = "🗺️ Gathering the miniatures and mapping the realm..."
+            elif not initial_graph_state.party_details:
+                parent_step.name = "⚔️ Rolling initiative and crafting character sheets..."
+            else:
+                parent_step.name = "📜 Consulting the ancient tomes and penning the lore..."
+            await parent_step.update()
+            
             # Go through the stream of updates from the campaign generator and update the parent step accordingly, while also creating child steps for each node update
             async for output in campaign_generator.astream(initial_graph_state, config = config):
                 # 2. For each node update, find out which node it is and update the parent step accordingly
                 for node_name, node_state in output.items():
                     
                     if node_name == "PlannerNode":
-                        parent_step.name = "🗺️ Gathering the miniatures and mapping the realm..."
-                        await parent_step.update()
-                        
                         async with cl.Step(name="Brainstorming the plot...", parent_id=parent_step.id) as step:
                             plan = node_state.get('campaign_plan')
                             if plan:
@@ -141,10 +147,11 @@ async def generate_campaign(state: dict):
                             step.name = "🗺️ Campaign World Planned"
                             await step.update()
                             
-                    elif node_name == "PartyCreationNode":
+                        # Preemptively update the parent step for the NEXT node's execution
                         parent_step.name = "⚔️ Rolling initiative and crafting character sheets..."
                         await parent_step.update()
-
+                            
+                    elif node_name == "PartyCreationNode":
                         async with cl.Step(name="Drafting the roster...", parent_id=parent_step.id) as step:
                             party = node_state.get('party_details')
                             if party:
@@ -158,10 +165,11 @@ async def generate_campaign(state: dict):
                             step.name = "⚔️ Party Assembled"
                             await step.update()
                             
-                    elif node_name == "NarrativeWriterNode":
+                        # Preemptively update the parent step for the NEXT node's execution
                         parent_step.name = "📜 Consulting the ancient tomes and penning the lore..."
                         await parent_step.update()
-                        
+                            
+                    elif node_name == "NarrativeWriterNode":
                         async with cl.Step(name="Writing the epic...", parent_id=parent_step.id) as step:
                             step.output = f"**Title chosen:** {node_state.get('title')}\n\nReviewing lore and formatting markdown..."
                             
