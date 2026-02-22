@@ -37,7 +37,10 @@ async def mcp_server_session():
         pass # Ignore TaskGroup teardown errors from SSE client
     except Exception as e:
         print(f"MCP Connection Error: {e}", file=sys.stderr)
-        yield mcp_tools
+    finally:
+        # Fallback yield just in case the exception was caught before the primary yield
+        if not mcp_tools:
+            yield mcp_tools
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -62,10 +65,25 @@ class RouteDecision(BaseModel):
         description="The node to route the graph to based on the user's request."
     )
 
-class CombatAction(BaseModel):
-    """CombatAction represents either a weapon attack or an offensive spell, including the necessary combat math."""
-    name: str = Field(description="Name of attack or spell (e.g., Longsword, Fire Bolt)")
+class Weapon(BaseModel):
+    """Weapon represents an equipped weapon, including the necessary combat math."""
+    name: str = Field(description="Name of weapon (e.g., Longsword, Dagger)")
     stats: str = Field(description="MANDATORY COMBAT MATH. You MUST calculate and write the to-hit bonus and damage dice based on their ability scores (e.g., '+5 to hit | 1d8+3 Slashing'). DO NOT leave this blank.")
+
+class Spell(BaseModel):
+    """Spell represents an equipped or known spell."""
+    name: str = Field(description="Name of the spell (e.g., Fire Bolt, Cure Wounds)")
+    level: int = Field(description="Spell level (0 for cantrips)")
+    description: str = Field(description="Brief spell effect, including damage/healing or save DC if applicable.")
+
+class VillainStatblock(BaseModel):
+    """Stats and abilities of the primary antagonist."""
+    hp: int = Field(description="Max hit points")
+    ac: int = Field(description="Armor Class")
+    flavor_quote: str = Field(description="A menacing, in-character quote from the villain")
+    physical_description: str = Field(description="A vivid, detailed physical description of the villain's appearance. Include height, build, distinctive features, clothing, and any unnatural traits. This will be used for image generation.")
+    attacks: list[str] = Field(description="List of attacks with to-hit and damage (e.g., '+7 to hit | 2d8+4 slashing')")
+    special_abilities: list[str] = Field(default_factory=list, description="Unique villain abilities or legendary actions")
 
 class Character(BaseModel):
     """Character schema with detailed attributes, personality, combat stats, and inventory."""
@@ -84,15 +102,21 @@ class Character(BaseModel):
     flaws: Optional[str] = Field(default=None, description="Notable flaws")
     alignment: str = Field(description="D&D alignment (e.g., Chaotic Good, Lawful Evil)")
     flavor_quote: str = Field(description="A short, in-character quote that sums up their personality")
+    physical_description: str = Field(description="A vivid, detailed physical description of the character's appearance. Include race features, build, hair, eyes, clothing, and any notable markings or gear. This will be used for image generation.")
 
     # Combat & Abilities
     hp: int = Field(description="Max hit points calculated for their level and class")
     ac: int = Field(description="Armor Class based on their gear")
 
-    combat_actions: list[CombatAction] = Field(
+    weapons: list[Weapon] = Field(
         default_factory=list, 
-        description="List of equipped weapons or offensive spells. MUST include the name and calculated stats (e.g., '+5 to hit | 1d8+3 Slashing')."
-    )    
+        description="List of equipped weapons. MUST include the name and calculated stats (e.g., '+5 to hit | 1d8+3 Slashing')."
+    )
+    
+    spells: list[Spell] = Field(
+        default_factory=list,
+        description="List of known spells. Empty for martial classes."
+    )
     
     ability_scores: dict[str, int] = Field(description="A dictionary of standard D&D stats (STR, DEX, CON, INT, WIS, CHA) generated using standard array or point buy.")
     
@@ -116,6 +140,7 @@ class CampaignPlan(BaseModel):
     """The structured facts of the campaign before writing begins."""
     thought_process: str = Field(description="Briefly explain your reasoning for the antagonist, plot, and locations based on the user's requirements.")
     primary_antagonist: str = Field(description="Name and brief concept of the main boss/villain")
+    villain_statblock: VillainStatblock = Field(description="Combat stats for the primary antagonist")
     core_conflict: str = Field(description="One sentence summarizing the main problem")
     plot_points: list[str] = Field(description="3 to 4 major events that will happen in the quest")
     factions_involved: list[str] = Field(description="1 or 2 local factions or guilds involved in the conflict")
@@ -171,6 +196,9 @@ def search_wikipedia(query: str) -> str:
 def planner_node(state: CampaignState):
     """Node 1: Establishes the facts and structured outline of the campaign."""
     search_query = f"D&D quest ideas for a {state.difficulty or 'Medium'} campaign in {state.terrain or 'Mixed Terrain'}"
+    
+    search_results = "No internet search results."
+    wiki_results = "No Wikipedia results."
     
     with suppress(ToolException, ValueError, TypeError):
         search_results = search_internet.invoke({"query": search_query})

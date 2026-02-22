@@ -11,3 +11,5 @@ context.md
 resources/Handbook.pdf
 exit_reason.txt
 logs/dnd_mcp_server.log
+./logs/**
+test_graph.py

@@ -141,7 +141,14 @@ async def generate_campaign(state: dict):
                                 plot_bullets = "\n".join([f"- {p}" for p in plan.plot_points])
                                 locations_bullets = "\n".join([f"- {l}" for l in plan.key_locations])
                                 
-                                clean_markdown = f"### DM's Notes\n_{plan.thought_process}_\n\n**Villain:** {plan.primary_antagonist}\n**Conflict:** {plan.core_conflict}\n\n**Key Locations:**\n{locations_bullets}\n\n**Plot Outline:**\n{plot_bullets}\n\n**Loot:** {plan.loot_concept}"
+                                villain_stats = ""
+                                if hasattr(plan, 'villain_statblock') and plan.villain_statblock:
+                                    vs = plan.villain_statblock
+                                    v_attacks = "\n  - " + "\n  - ".join(vs.attacks) if vs.attacks else ""
+                                    v_abilities = "\n  - " + "\n  - ".join(vs.special_abilities) if vs.special_abilities else ""
+                                    villain_stats = f"\n\n**Villain Statblock:**\n- **HP:** {vs.hp} | **AC:** {vs.ac}\n- _\"{vs.flavor_quote}\"_\n- **Attacks:**{v_attacks}\n- **Abilities:**{v_abilities}"
+
+                                clean_markdown = f"### DM's Notes\n_{plan.thought_process}_\n\n**Villain:** {plan.primary_antagonist}{villain_stats}\n\n**Conflict:** {plan.core_conflict}\n\n**Key Locations:**\n{locations_bullets}\n\n**Plot Outline:**\n{plot_bullets}\n\n**Loot:** {plan.loot_concept}"
                                 step.output = clean_markdown
                             else:
                                 step.output = "Thinking..."
@@ -203,7 +210,7 @@ async def generate_campaign(state: dict):
             # THE FINAL TOUCH: Update the parent step right before the loading animation stops
             parent_step.name = "🐉 Campaign successfully forged!"
             await parent_step.update()
-        
+
         # Format the fully accumulated state
         formatted_output = format_campaign_output(final_state)
         
@@ -242,8 +249,9 @@ def format_campaign_output(result: dict) -> str:
         plot_points = plan.get('plot_points', []) if isinstance(plan, dict) else getattr(plan, 'plot_points', [])
         locations = plan.get('key_locations', []) if isinstance(plan, dict) else getattr(plan, 'key_locations', [])
         factions = plan.get('factions_involved', []) if isinstance(plan, dict) else getattr(plan, 'factions_involved', [])
+        villain_statblock = plan.get('villain_statblock') if isinstance(plan, dict) else getattr(plan, 'villain_statblock', None)
     else:
-        villain, conflict, plot_points, locations, factions = "Unknown", description, [], [], []
+        villain, conflict, plot_points, locations, factions, villain_statblock = "Unknown", description, [], [], [], None
 
     lines = []
     
@@ -263,6 +271,29 @@ def format_campaign_output(result: dict) -> str:
     lines.append("")
     lines.append("### 😈 Primary Antagonist")
     lines.append(f"**{villain}**")
+    if villain_statblock:
+        vs = villain_statblock
+        # Handle both dict (from state dump) and Pydantic object
+        hp = vs.get('hp') if isinstance(vs, dict) else getattr(vs, 'hp', None)
+        ac = vs.get('ac') if isinstance(vs, dict) else getattr(vs, 'ac', None)
+        quote = vs.get('flavor_quote') if isinstance(vs, dict) else getattr(vs, 'flavor_quote', None)
+        attacks = vs.get('attacks', []) if isinstance(vs, dict) else getattr(vs, 'attacks', [])
+        abilities = vs.get('special_abilities', []) if isinstance(vs, dict) else getattr(vs, 'special_abilities', [])
+        if quote:
+            lines.append(f"*\"{quote}\"*")
+        if hp and ac:
+            lines.append(f"**HP:** {hp} | **AC:** {ac}")
+        if attacks:
+            lines.append("**Attacks:**")
+            for atk in attacks:
+                lines.append(f"- {atk}")
+        if abilities:
+            lines.append("**Special Abilities:**")
+            for ab in abilities:
+                lines.append(f"- {ab}")
+        phys = vs.get('physical_description') if isinstance(vs, dict) else getattr(vs, 'physical_description', None)
+        if phys:
+            lines.append(f"\n> 🎨 *{phys}*")
     lines.append("")
     
     if plot_points:
@@ -316,6 +347,11 @@ def format_campaign_output(result: dict) -> str:
             lines.append(f"> \"{quote}\"")
             lines.append("")
             
+            phys_desc = char.get('physical_description')
+            if phys_desc:
+                lines.append(f"> 🎨 *{phys_desc}*")
+                lines.append("")
+            
             # Render stats as Markdown table if they exist
             stats = char.get('ability_scores', {})
             if stats:
@@ -356,22 +392,35 @@ def format_campaign_output(result: dict) -> str:
                 sk_str = ", ".join(sk) if isinstance(sk, list) else str(sk)
                 mechanics.append(f"**Skills:** {sk_str}")
             
-            # All attacks (weapons/spells) flow purely through combat_actions now
-            if char.get('combat_actions'):
-                ca = char['combat_actions']
-                ca_strs = []
-                for action in ca:
-                    # Handles the strict CombatAction dict schema
-                    if isinstance(action, dict):
-                        a_name = action.get('name', 'Unknown Attack').strip()
-                        a_stats = action.get('stats', '').strip()
-                        ca_strs.append(f"{a_name} ({a_stats})" if a_stats else a_name)
-                    # Fallback just in case you have older cached session data
-                    elif isinstance(action, str):
-                        ca_strs.append(action)
-                
-                if ca_strs:
-                    mechanics.append(f"**Combat:** {', '.join(ca_strs)}")
+            # Weapons
+            if char.get('weapons'):
+                wpns = char['weapons']
+                w_strs = []
+                for w in wpns:
+                    if isinstance(w, dict):
+                        w_name = w.get('name', '').strip()
+                        w_stats = w.get('stats', '').strip()
+                        w_strs.append(f"{w_name} ({w_stats})" if w_stats else w_name)
+                    elif isinstance(w, str):
+                        w_strs.append(w)
+                if w_strs:
+                    mechanics.append(f"**Weapons:** {', '.join(w_strs)}")
+                    
+            # Spells
+            if char.get('spells'):
+                spls = char['spells']
+                s_strs = []
+                for s in spls:
+                    if isinstance(s, dict):
+                        s_name = s.get('name', '').strip()
+                        s_level = s.get('level', 0)
+                        s_desc = s.get('description', '').strip()
+                        lvl_str = "Cantrip" if s_level == 0 else f"Level {s_level}"
+                        s_strs.append(f"{s_name} [{lvl_str}]: {s_desc}")
+                    elif isinstance(s, str):
+                        s_strs.append(s)
+                if s_strs:
+                    mechanics.append(f"**Spells:**\n- " + "\n- ".join(s_strs))
             
             # The elif char.get('weapons'): block has been completely removed!
                 
