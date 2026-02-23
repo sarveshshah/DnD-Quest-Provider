@@ -19,12 +19,14 @@ from langchain_community.retrievers import WikipediaRetriever
 import asyncio
 import traceback
 import sys
-
+import base64
+    
 from mcp.client.sse import sse_client
 from mcp.client.session import ClientSession
 
 import os
 from google import genai
+import json
 
 @asynccontextmanager
 async def mcp_server_session():
@@ -89,6 +91,7 @@ class VillainStatblock(BaseModel):
     physical_description: str = Field(description="A vivid, detailed physical description of the villain's appearance. Include height, build, distinctive features, clothing, and any unnatural traits. This will be used for image generation.")
     attacks: list[str] = Field(description="List of attacks with to-hit and damage (e.g., '+7 to hit | 2d8+4 slashing')")
     special_abilities: list[str] = Field(default_factory=list, description="Unique villain abilities or legendary actions")
+    image_base64: Optional[str] = Field(default=None, description="A Base64 string of the villain's generated portrait.")
 
 class Character(BaseModel):
     """Character schema with detailed attributes, personality, combat stats, and inventory."""
@@ -211,7 +214,10 @@ def search_wikipedia(query: str) -> str:
 # --- Nodes ---
 def planner_node(state: CampaignState):
     """Node 1: Establishes the facts and structured outline of the campaign."""
-    search_query = f"D&D quest ideas for a {state.difficulty or 'Medium'} campaign in {state.terrain or 'Mixed Terrain'}"
+    import random
+    sparks = ["ancient ruins", "political intrigue", "planar invasion", "an undead curse", "a feywild connection", "a dragon cult", "abyssal corruption", "a lost magical artifact", "a celestial prophecy", "a dark guild"]
+    spark = random.choice(sparks)
+    search_query = f"D&D quest ideas for a {state.difficulty or 'Medium'} campaign in {state.terrain or 'Mixed Terrain'} involving {spark}"
     
     search_results = "No internet search results."
     wiki_results = "No Wikipedia results."
@@ -366,14 +372,44 @@ async def character_portrait_node(state: CampaignState):
     if not state.party_details or not state.party_details.characters:
         return {}
 
-    prompt_template = """A high-quality digital fantasy portrait of a D&D character. {description}. 
-    They are a {race} {class_name}. 
-    Make it a vivid character design fitting for a TTRPG token or character sheet, featuring dynamic lighting, render a high quality image for a character sheet for a DND campaign.
-    Use additional context available in {terrain} to design armor and clothing. Also render them in a pose that reflects their personality and class. They may also carry weapons or spellbooks.
-    While not the most important, try to render something that shows their {weapons} or {inventory} items depending on what you see fit. Do not add any text to the image.
-    Add a cool background that reflects the {terrain}.      
+    prompt_template = """A breathtaking, masterpiece digital painting of a D&D character, official Dungeons and Dragons 5e sourcebook art style, trending on ArtStation. 
+    Subject: A {race} {class_name}. {description}
+    Details: Render them in a dramatic, dynamic pose that reflects their personality and class. They should be wearing high-fantasy armor or clothing appropriate for a {terrain} environment. If applicable, they are wielding: {weapons}, and carrying: {inventory}
+    Aesthetic: High-fidelity fantasy concept art, Unreal Engine 5 render, global illumination, ray tracing, incredibly detailed, best quality, distinct facial features, intense gaze, highly intricate armor, dramatic shadows, cinematic volumetric lighting, 8k resolution, photorealistic textures, vivid colors, painted by Greg Rutkowski and Magali Villeneuve. 
+    Background: A deeply atmospheric and cinematic background depicting a {terrain}. 
+    Critical Rule: NO TEXT, NO WATERMARKS, NO UI ELEMENTS, NO BORDERS.
     """
-    
+
+    # Generate villain portrait first if present
+    if state.campaign_plan and state.campaign_plan.villain_statblock:
+        villain = state.campaign_plan.villain_statblock
+        try:
+            villain_prompt = f"""A breathtaking, masterpiece digital painting of a sinister D&D villain, official Dungeons and Dragons 5e sourcebook art style, trending on ArtStation. 
+            Subject: {villain.physical_description}
+            Details: Render them in an intimidating, dramatic pose that exudes power and menace. imposing silhouette.
+            Aesthetic: High-fidelity dark fantasy concept art, Unreal Engine 5 render, chilling atmosphere, hyperdetailed villain design, gothic fantasy, eerie glowing accents, cinematic lighting, dramatic shadows, 8k resolution, photorealistic textures, vivid moody colors, painted by Greg Rutkowski and Magali Villeneuve. 
+            Background: A deeply atmospheric, dark, and cinematic background depicting a corrupted {state.terrain if state.terrain else 'fantasy world'}.
+            Critical Rule: NO TEXT, NO WATERMARKS, NO UI ELEMENTS, NO BORDERS.
+            """
+            # Call Imagen 4
+            result = imagen_client.models.generate_images(
+                model = 'imagen-4.0-generate-001',
+                prompt = villain_prompt,
+                config = dict(
+                    number_of_images = 1,
+                    output_mime_type = "image/jpeg",
+                    aspect_ratio = "1:1"
+                )
+            )
+            if result.generated_images:
+                raw_bytes = result.generated_images[0].image.image_bytes
+                villain.image_base64 = base64.b64encode(raw_bytes).decode('utf-8')
+                print(f"✨ Successfully conjured a portrait for the villain. Resting a moment to regain spell slots... (API cooldown)")
+                await asyncio.sleep(4)
+        except Exception as e:
+            print(f"❌ A wild magic surge disrupted the villain portrait: {e}")
+            await asyncio.sleep(4)
+
     # We edit the list of characters in-place
     for char in state.party_details.characters:
         try:
@@ -391,19 +427,17 @@ async def character_portrait_node(state: CampaignState):
             
             # Call Imagen 3
             result = imagen_client.models.generate_images(
-                model='imagen-4.0-generate-001',
+                model = 'imagen-4.0-generate-001',
                 prompt = full_prompt,
-                config=dict(
-                    number_of_images=1,
-                    output_mime_type="image/jpeg",
-                    aspect_ratio="1:1"
+                config = dict(
+                    number_of_images = 1,
+                    output_mime_type = "image/jpeg",
+                    aspect_ratio = "1:1"
                 )
             )
             
             # The result contains generated_images, get the first one's bytes
             if result.generated_images:
-                import base64
-                import asyncio
                 raw_bytes = result.generated_images[0].image.image_bytes
                 base64_img = base64.b64encode(raw_bytes).decode('utf-8')
                 char.image_base64 = base64_img
@@ -412,11 +446,12 @@ async def character_portrait_node(state: CampaignState):
             
         except Exception as e:
             print(f"❌ A wild magic surge disrupted the portrait for {char.name}: {e}")
-            import asyncio
             await asyncio.sleep(4) # Still wait even on failure to recover quota
             pass # Keep going even if one portrait fails
-            
-    return {"party_details": state.party_details}
+    return {
+        "party_details": state.party_details,
+        "campaign_plan": state.campaign_plan
+    }
 
 def narrative_writer_node(state: CampaignState):
     """Node 3: Takes the structured facts and writes the final, high-quality Markdown prose."""
@@ -424,7 +459,14 @@ def narrative_writer_node(state: CampaignState):
     # Clear tools messages from previos node
     state.messages.clear()
 
-    plan_context = state.campaign_plan.model_dump_json(indent = 2) if state.campaign_plan else "No plan available."
+    if state.campaign_plan:
+        plan_dict = state.campaign_plan.model_dump(by_alias=True)
+        # Strip out the base64 image string for the villain
+        if plan_dict.get('villain_statblock') and 'image_base64' in plan_dict['villain_statblock']:
+            plan_dict['villain_statblock']['image_base64'] = "[GENERATED IMAGE STORED]"
+        plan_context = json.dumps(plan_dict, indent=2)
+    else:
+        plan_context = "No plan available."
     
     party_context = "No party details."
     if state.party_details:
@@ -433,7 +475,6 @@ def narrative_writer_node(state: CampaignState):
         for char in party_dict.get('characters', []):
             if 'image_base64' in char:
                 char['image_base64'] = "[GENERATED IMAGE STORED]"
-        import json
         party_context = json.dumps(party_dict, indent=2)
 
     existing_narrative = "None"

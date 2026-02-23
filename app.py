@@ -9,6 +9,8 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import HumanMessage, AIMessage
 
 import uuid
+import base64
+import traceback
 
 from dnd import app as campaign_generator, CampaignState, PartyDetails, CampaignPlan
 
@@ -172,7 +174,8 @@ async def run_planner_phase(state: dict):
                 vs = planner_plan.villain_statblock
                 v_attacks = "\n  - " + "\n  - ".join(vs.attacks) if vs.attacks else ""
                 v_abilities = "\n  - " + "\n  - ".join(vs.special_abilities) if vs.special_abilities else ""
-                villain_stats = f"\n\n**Villain Statblock:**\n- **HP:** {vs.hp} | **AC:** {vs.ac}\n- _\"{vs.flavor_quote}\"_\n- **Attacks:**{v_attacks}\n- **Abilities:**{v_abilities}"
+                v_phys = f"\n- **Appearance:** {vs.physical_description}" if hasattr(vs, 'physical_description') and vs.physical_description else ""
+                villain_stats = f"\n\n**Villain Statblock:**\n- **HP:** {vs.hp} | **AC:** {vs.ac}\n- _\"{vs.flavor_quote}\"_{v_phys}\n- **Attacks:**{v_attacks}\n- **Abilities:**{v_abilities}"
 
             # Suggested Party
             suggested_party = getattr(planner_plan, 'suggested_party', [])
@@ -222,7 +225,6 @@ Suggest 3 completely different directions the user might want to take this campa
             await cl.Message(content=approval_msg, actions=actions).send()
 
     except Exception as e:
-        import traceback
         error_details = traceback.format_exc()
         print(error_details)
         await cl.Message(content=f"**Error during planning:** {str(e)}\n\n```text\n{error_details}\n```").send()
@@ -303,6 +305,12 @@ async def resume_campaign():
             parent_step.name = "🐉 Campaign successfully forged!"
             await parent_step.update()
 
+        # LangGraph pause means final_state only has nodes that executed *after* the pause.
+        # We inject the complete plan from session state back into final_state for the formatter,
+        # ONLY if the graph didn't already return a modified plan (e.g. from the image generator).
+        pending_plan = cl.user_session.get("pending_plan")
+        if pending_plan and "campaign_plan" not in final_state:
+            final_state["campaign_plan"] = pending_plan
         formatted_output, images = format_campaign_output(final_state)
         if "party_details" in final_state and "characters" in final_state.get("party_details", {}):
             state["characters"] = final_state["party_details"]["characters"]
@@ -315,7 +323,6 @@ async def resume_campaign():
         await cl.Message(content=formatted_output, elements=images).send()
 
     except Exception as e:
-        import traceback
         error_details = traceback.format_exc()
         print(error_details)
         await cl.Message(content=f"**Error resuming campaign:** {str(e)}\n\n```text\n{error_details}\n```").send()
@@ -342,6 +349,7 @@ def format_campaign_output(result: dict) -> str:
         villain, conflict, plot_points, locations, factions, villain_statblock = "Unknown", description, [], [], [], None
 
     lines = []
+    images = []
     
     # --- 1. CAMPAIGN HEADER ---
     lines.append(f"# 🐉 {title}")
@@ -367,6 +375,9 @@ def format_campaign_output(result: dict) -> str:
         quote = vs.get('flavor_quote') if isinstance(vs, dict) else getattr(vs, 'flavor_quote', None)
         attacks = vs.get('attacks', []) if isinstance(vs, dict) else getattr(vs, 'attacks', [])
         abilities = vs.get('special_abilities', []) if isinstance(vs, dict) else getattr(vs, 'special_abilities', [])
+        
+        # Extract villain base64 but do not add it to images yet to preserve order
+        villain_img_b64 = vs.get('image_base64') if isinstance(vs, dict) else getattr(vs, 'image_base64', None)
         if quote:
             lines.append(f"*\"{quote}\"*")
         if hp and ac:
@@ -413,8 +424,6 @@ def format_campaign_output(result: dict) -> str:
     party_dict = party_data if isinstance(party_data, dict) else (party_data.model_dump() if party_data else {})
     party_name = party_dict.get('party_name', 'The Nameless Heroes') if party_dict else 'The Nameless Heroes'
     
-    images = []
-    
     lines.append(f"## ⚔️ {party_name}")
     lines.append("")
     
@@ -435,16 +444,12 @@ def format_campaign_output(result: dict) -> str:
             # Character Header
             lines.append(f"### {name}")
             
-            # --- Inline Image ---
+            # --- Gallery Hero Image ---
             img_b64 = char.get('image_base64')
             if img_b64 and img_b64 != "[GENERATED IMAGE STORED]":
-                import base64
                 try:
                     img_bytes = base64.b64decode(img_b64)
-                    slug_name = f"portrait-{i}"
-                    images.append(cl.Image(name=slug_name, content=img_bytes, display="inline"))
-                    lines.append(f"![{slug_name}]({slug_name})")
-                    lines.append("")
+                    images.append(cl.Image(name=name, content=img_bytes))
                 except Exception:
                     pass
 
@@ -465,7 +470,12 @@ def format_campaign_output(result: dict) -> str:
                 lines.append(f"| {stats.get('STR', 10)} | {stats.get('DEX', 10)} | {stats.get('CON', 10)} | {stats.get('INT', 10)} | {stats.get('WIS', 10)} | {stats.get('CHA', 10)} |")
                 lines.append("")
 
-            # Bulleted Traits & Narrative Hook
+            flaws = char.get('flaws')
+            if flaws:
+                lines.append(f"**Flaws:** {flaws}")
+                
+            lines.append("---")
+            lines.append("")
             if char.get('backstory_hook'): 
                 lines.append(f"**Hook:** {char['backstory_hook']}")
                 lines.append("")
@@ -543,6 +553,15 @@ def format_campaign_output(result: dict) -> str:
             lines.append("---")
             lines.append("")
             
+    # --- Append Villain Image Last for Gallery Order ---
+    if villain_statblock and 'villain_img_b64' in locals():
+        if villain_img_b64 and villain_img_b64 != "[GENERATED IMAGE STORED]":
+            try:
+                img_bytes = base64.b64decode(villain_img_b64)
+                images.append(cl.Image(name=villain, content=img_bytes))
+            except Exception:
+                pass
+
     return "\n".join(lines), images
 
 # --- Chainlit App ---
@@ -624,7 +643,6 @@ async def approve_plan(action: cl.Action):
 async def edit_plan(action: cl.Action):
     await action.remove()
     # Reset the thread so the planner re-runs from scratch with the edit
-    import uuid
     cl.user_session.set("thread_id", str(uuid.uuid4()))
     await cl.Message(content="Of course! Tell me what you'd like to change — villain, plot, locations, difficulty — anything goes. I'll re-plan the campaign with your input.").send()
 
@@ -635,8 +653,7 @@ async def dynamic_edit(action: cl.Action):
     
     # Show the user what they clicked
     await cl.Message(content=f"*{edit_payload}*").send()
-    
-    import uuid
+
     cl.user_session.set("thread_id", str(uuid.uuid4()))
     
     # Inject this edit into the state and run the planner again directly
