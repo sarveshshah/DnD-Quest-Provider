@@ -136,6 +136,13 @@ class PartyDetails(BaseModel):
     party_size: int = Field(description="Number of players in the party", ge=1)
     characters: list[Character] = Field(default_factory=list)
 
+class BaseCharacter(BaseModel):
+    """The foundational identity of a character (before stats/gear are rolled)."""
+    model_config = ConfigDict(populate_by_name=True)
+    name: str = Field(description="Character name")
+    race: str = Field(description="Character race")
+    class_name: str = Field(alias="class", description="Character class")
+
 class CampaignPlan(BaseModel):
     """The structured facts of the campaign before writing begins."""
     thought_process: str = Field(description="Briefly explain your reasoning for the antagonist, plot, and locations based on the user's requirements.")
@@ -145,6 +152,7 @@ class CampaignPlan(BaseModel):
     plot_points: list[str] = Field(description="3 to 4 major events that will happen in the quest")
     factions_involved: list[str] = Field(description="1 or 2 local factions or guilds involved in the conflict")
     key_locations: list[str] = Field(description="Specific areas within the terrain the party will visit")
+    suggested_party: list[BaseCharacter] = Field(description="A list of suggested heroes (name, race, class) that fit this specific campaign.")
     loot_concept: str = Field(description="The general idea for the final reward")
 
 class CampaignContent(BaseModel):
@@ -240,6 +248,18 @@ async def party_creation_node(state: CampaignState):
     party_name = state.party_details.party_name if state.party_details else "Not Provided"
     party_size = state.party_details.party_size if state.party_details else 4
     existing_characters = state.party_details.characters if state.party_details else []
+
+    # If roster isn't locked, but the planner gave us suggestions, use those as the baseline!
+    if not existing_characters and getattr(state.campaign_plan, 'suggested_party', None):
+        existing_characters = [
+            {"name": c.name, "race": c.race, "class": c.class_name, "level": 1}
+            for c in state.campaign_plan.suggested_party
+        ]
+        party_size = len(existing_characters)
+        # If we're seeding from suggested_party, we should also update party_name if it's still "Not Provided"
+        if party_name == "Not Provided":
+            party_name = "The Suggested Adventurers" # Or generate a name based on the suggested party
+
     plan_context = state.campaign_plan.model_dump_json(indent=2) if state.campaign_plan else "No plan available."
 
     mcp_tools = []
@@ -383,24 +403,7 @@ def narrative_writer_node(state: CampaignState):
         "rewards": content.rewards
     }
 
-# Allow smart routing so that agent can call the right node
-def route_step(state: CampaignState):
-    """A simple router to determine which node to execute based on the current state."""
-    if not state.campaign_plan:
-        return "PlannerNode"
-    if not state.party_details:
-        return "PartyCreationNode"
-    
-    prompt = f"""Analyze the user's latest request: "{state.requirements}"
-    
-    Where should we route the graph?
-    - "PlannerNode": If they want to change the plot, villain, setting, or core conflict.
-    - "PartyCreationNode": If they want to change a character's name, race, class, stats, or party composition.
-    - "NarrativeWriterNode": If they want to change the title, the tone of the writing, or if no specific edits were requested.
-    """
 
-    decision = model.with_structured_output(RouteDecision).invoke(prompt)
-    return decision.target_node
 
 def determine_next_steps(state: CampaignState, current_node: str):
     """Determine the next steps in the campaign generation process."""
@@ -437,16 +440,8 @@ campaign_graph.add_node("PartyCreationNode", party_creation_node)
 campaign_graph.add_node("NarrativeWriterNode", narrative_writer_node)
 campaign_graph.add_node("MCPToolNode", mcp_tool_node)
 
-# Add conditional router to restart from where we left off
-campaign_graph.add_conditional_edges(
-    START, 
-    route_step,
-    {
-        "PlannerNode": "PlannerNode",
-        "PartyCreationNode": "PartyCreationNode",
-        "NarrativeWriterNode": "NarrativeWriterNode"
-    }
-)
+# Always start at the PlannerNode. If we are editing, PlannerNode handles the edit.
+campaign_graph.add_edge(START, "PlannerNode")
 
 # Step 2: Dynamic Routing
 campaign_graph.add_conditional_edges(
@@ -485,7 +480,7 @@ campaign_graph.add_edge("MCPToolNode", "PartyCreationNode")
 campaign_graph.add_edge("NarrativeWriterNode", END)
 
 memory = MemorySaver()
-app = campaign_graph.compile(checkpointer=memory)
+app = campaign_graph.compile(checkpointer=memory, interrupt_after=["PlannerNode"])
 
 def main():
     """Test the campaign generator"""

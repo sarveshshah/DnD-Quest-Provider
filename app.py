@@ -10,7 +10,7 @@ from langchain_core.messages import HumanMessage, AIMessage
 
 import uuid
 
-from dnd import app as campaign_generator, CampaignState, PartyDetails
+from dnd import app as campaign_generator, CampaignState, PartyDetails, CampaignPlan
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -39,6 +39,15 @@ class CampaignIntake(BaseModel):
     
     new_requirements: Optional[str] = Field(None, description="Any new plot, character, or thematic requests")
     user_confirmed_start: bool = Field(default=False, description="True ONLY if user says 'start', 'randomize the rest', or 'go with it'. FALSE if they just ask to create a campaign or list requirements.")
+
+class DynamicHitlActions(BaseModel):
+    """Suggestions for the user to edit the campaign during the HITL phase."""
+    action_1_label: str = Field(description="A short, catchy button label (e.g. 'Make the villain tougher', 'Add more stealth')")
+    action_1_payload: str = Field(description="The actual prompt edit text to send to the planner (e.g. 'Make the villain have more HP and AC and stealth-based attacks.')")
+    action_2_label: str = Field(description="A short, catchy button label (e.g. 'Change setting to a spooky swamp')")
+    action_2_payload: str = Field(description="The actual prompt edit text to send to the planner (e.g. 'Move the primary locations to a spooky, fog-filled swamp.')")
+    action_3_label: str = Field(description="A short, catchy button label focusing on characters")
+    action_3_payload: str = Field(description="The actual prompt edit text to send to the planner (e.g. 'Change one of the characters to be a Rogue.')")
 
 # --- Prompts ---
 # Explicitly pass history as text to guarantee the model reads it
@@ -88,95 +97,166 @@ def _coerce_difficulty(d_str: str) -> str:
     d_title = d_str.title()
     return next((v.title() for v in valid if v in d_title), "Medium")
 
-async def generate_campaign(state: dict):
+async def run_planner_phase(state: dict):
+    """Phase 1: Run just the PlannerNode, then pause and show the plan for HITL approval."""
     if not state.get("party_name"): state["party_name"] = "Not Provided"
-    if not state["party_size"]: state["party_size"] = 4
-    if not state["terrain"]: state["terrain"] = "Forest"
-    if not state["difficulty"]: state["difficulty"] = "Medium"
-    
-    # msg = cl.Message(content="🎲 *Rolling the dice... orchestrating your campaign across the multiverse!*")
-    # await msg.send()
-    
+    if not state.get("party_size"): state["party_size"] = 4
+    if not state.get("terrain"): state["terrain"] = "Forest"
+    if not state.get("difficulty"): state["difficulty"] = "Medium"
+
     initial_graph_state = CampaignState(
         terrain=state["terrain"], 
         difficulty=state["difficulty"],
-        requirements=state["requirements"], 
-        roster_locked=state["roster_locked"],
+        requirements=state.get("requirements", ""), 
+        roster_locked=state.get("roster_locked", True),
         party_details=PartyDetails(
             party_name=state["party_name"], 
-            party_size=state["party_size"],
-            characters=state["characters"]
+            party_size=int(state["party_size"]),
+            characters=state.get("characters", [])
         )
     )
-    
-    try:
-        final_state = initial_graph_state.model_dump(by_alias=True)
 
-        thread_id = cl.user_session.get("thread_id")
-        config = {"configurable": {"thread_id": thread_id}}  # Pass thread_id in config for memory association
-        
-        # 1. Start with an initial "table setting" message
-        async with cl.Step(name="🎲 Preparing the table...") as parent_step:
+    # If we are editing an existing plan, pass it into the state so the LLM doesn't start from scratch
+    pending_plan_dict = cl.user_session.get("pending_plan")
+    if pending_plan_dict:
+        initial_graph_state.campaign_plan = CampaignPlan(**pending_plan_dict)
+
+    thread_id = cl.user_session.get("thread_id")
+    config = {"configurable": {"thread_id": thread_id}}
+    
+    planner_plan = None
+
+    try:
+        async with cl.Step(name="🗺️ Gathering the miniatures and mapping the realm...") as parent_step:
             await parent_step.send()
             
-            if not initial_graph_state.campaign_plan:
-                parent_step.name = "🗺️ Gathering the miniatures and mapping the realm..."
-            elif not initial_graph_state.party_details:
-                parent_step.name = "⚔️ Rolling initiative and crafting character sheets..."
-            else:
-                parent_step.name = "📜 Consulting the ancient tomes and penning the lore..."
-            await parent_step.update()
-
-            party_creation_step = None
-            
-            # Go through the stream of updates from the campaign generator and update the parent step accordingly, while also creating child steps for each node update
-            async for output in campaign_generator.astream(initial_graph_state, config = config):
-                # 2. For each node update, find out which node it is and update the parent step accordingly
+            async for output in campaign_generator.astream(initial_graph_state, config=config):
                 for node_name, node_state in output.items():
-                    
                     if node_name == "PlannerNode":
+                        plan = node_state.get('campaign_plan')
+                        planner_plan = plan
                         async with cl.Step(name="Brainstorming the plot...", parent_id=parent_step.id) as step:
-                            plan = node_state.get('campaign_plan')
                             if plan:
                                 plot_bullets = "\n".join([f"- {p}" for p in plan.plot_points])
                                 locations_bullets = "\n".join([f"- {l}" for l in plan.key_locations])
-                                
                                 villain_stats = ""
                                 if hasattr(plan, 'villain_statblock') and plan.villain_statblock:
                                     vs = plan.villain_statblock
                                     v_attacks = "\n  - " + "\n  - ".join(vs.attacks) if vs.attacks else ""
                                     v_abilities = "\n  - " + "\n  - ".join(vs.special_abilities) if vs.special_abilities else ""
                                     villain_stats = f"\n\n**Villain Statblock:**\n- **HP:** {vs.hp} | **AC:** {vs.ac}\n- _\"{vs.flavor_quote}\"_\n- **Attacks:**{v_attacks}\n- **Abilities:**{v_abilities}"
-
-                                clean_markdown = f"### DM's Notes\n_{plan.thought_process}_\n\n**Villain:** {plan.primary_antagonist}{villain_stats}\n\n**Conflict:** {plan.core_conflict}\n\n**Key Locations:**\n{locations_bullets}\n\n**Plot Outline:**\n{plot_bullets}\n\n**Loot:** {plan.loot_concept}"
-                                step.output = clean_markdown
+                                step.output = f"### DM's Notes\n_{plan.thought_process}_\n\n**Villain:** {plan.primary_antagonist}{villain_stats}\n\n**Conflict:** {plan.core_conflict}\n\n**Key Locations:**\n{locations_bullets}\n\n**Plot Outline:**\n{plot_bullets}\n\n**Loot:** {plan.loot_concept}"
                             else:
                                 step.output = "Thinking..."
-                            
                             step.name = "🗺️ Campaign World Planned"
                             await step.update()
-                            
-                        # Preemptively update the parent step for the NEXT node's execution
-                        parent_step.name = "⚔️ Rolling initiative and crafting character sheets..."
-                        await parent_step.update()
-                            
-                    elif node_name == "PartyCreationNode":
+
+            parent_step.name = "✋ Awaiting your approval..."
+            await parent_step.update()
+
+        # Graph is now paused. Surface the plan and ask for approval.
+        if planner_plan:
+            # Save the plan so if the user clicks edit, we can feed it back to the PlannerNode
+            cl.user_session.set("pending_plan", planner_plan.model_dump())
+            
+            villain_name = getattr(planner_plan, 'primary_antagonist', 'the villain')
+            party_size = state.get("party_size", 4)
+            party_name_display = state.get("party_name", "Not Provided")
+            
+            # Reconstruct the plot points for the approval message
+            plot_bullets = "\n".join([f"- {p}" for p in getattr(planner_plan, 'plot_points', [])])
+            locations_bullets = "\n".join([f"- {l}" for l in getattr(planner_plan, 'key_locations', [])])
+            
+            villain_stats = ""
+            if hasattr(planner_plan, 'villain_statblock') and planner_plan.villain_statblock:
+                vs = planner_plan.villain_statblock
+                v_attacks = "\n  - " + "\n  - ".join(vs.attacks) if vs.attacks else ""
+                v_abilities = "\n  - " + "\n  - ".join(vs.special_abilities) if vs.special_abilities else ""
+                villain_stats = f"\n\n**Villain Statblock:**\n- **HP:** {vs.hp} | **AC:** {vs.ac}\n- _\"{vs.flavor_quote}\"_\n- **Attacks:**{v_attacks}\n- **Abilities:**{v_abilities}"
+
+            # Suggested Party
+            suggested_party = getattr(planner_plan, 'suggested_party', [])
+            if suggested_party:
+                party_bullets = "\n".join([f"- **{c.name}** ({c.race} {c.class_name})" for c in suggested_party])
+                party_str = f"### 🛡️ Proposed Heroes\n{party_bullets}\n\n"
+            else:
+                party_str = f"### 🛡️ The Party\n{party_name_display} ({party_size} heroes)\n\n"
+
+            approval_msg = (
+                f"## 🛑 Your DM Requests Approval\n\n"
+                f"The campaign skeleton and hero identities are ready! Before I roll stats, select spells, and write the full lore, "
+                f"do you want to proceed with this setup?\n\n"
+                f"{party_str}"
+                f"### 😈 Villain: {villain_name}{villain_stats}\n\n"
+                f"### ⚔️ Core Conflict\n{getattr(planner_plan, 'core_conflict', 'Not specified')}\n\n"
+                f"### 📍 Key Locations\n{locations_bullets}\n\n"
+                f"### 📖 Plot Outline\n{plot_bullets}\n\n"
+                f"---\n"
+                f"*Approve to continue with character creation and lore writing, select a suggestion below, or click Edit to type a custom change.*"
+            )
+
+            # Generate dynamic suggestions
+            suggestion_prompt = f"""Based on the current campaign plan:
+Villain: {villain_name}
+Conflict: {getattr(planner_plan, 'core_conflict', 'Not specified')}
+Terrain: {state.get('terrain')}
+
+Suggest 3 completely different directions the user might want to take this campaign by altering the plot, villain, or characters.
+"""
+            try:
+                suggestions = await chat_model.with_structured_output(DynamicHitlActions).ainvoke(suggestion_prompt)
+                actions = [
+                    cl.Action(name="approve_plan_btn", payload={"approve": True}, label="✅ Looks great, continue!"),
+                    cl.Action(name="dynamic_edit_btn", payload={"edit": suggestions.action_1_payload}, label=f"✨ {suggestions.action_1_label}"),
+                    cl.Action(name="dynamic_edit_btn", payload={"edit": suggestions.action_2_payload}, label=f"✨ {suggestions.action_2_label}"),
+                    cl.Action(name="dynamic_edit_btn", payload={"edit": suggestions.action_3_payload}, label=f"✨ {suggestions.action_3_label}"),
+                    cl.Action(name="edit_plan_btn", payload={"edit": True}, label="✏️ Type custom change...")
+                ]
+            except Exception as e:
+                # Fallback if suggestion generation fails
+                actions = [
+                    cl.Action(name="approve_plan_btn", payload={"approve": True}, label="✅ Looks great, continue!"),
+                    cl.Action(name="edit_plan_btn", payload={"edit": True}, label="✏️ I want to make changes")
+                ]
+
+            await cl.Message(content=approval_msg, actions=actions).send()
+
+    except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
+        print(error_details)
+        await cl.Message(content=f"**Error during planning:** {str(e)}\n\n```text\n{error_details}\n```").send()
+
+
+async def resume_campaign():
+    """Phase 2: Resume the paused graph after user approval. Streams the rest (party + narrative)."""
+    thread_id = cl.user_session.get("thread_id")
+    config = {"configurable": {"thread_id": thread_id}}
+    # Pull the campaign_params so we can save characters back at the end
+    state = cl.user_session.get("campaign_params", {})
+    final_state = {}
+
+    try:
+        async with cl.Step(name="⚔️ Rolling initiative and crafting character sheets...") as parent_step:
+            await parent_step.send()
+            
+            party_creation_step = None
+            
+            # Resume by passing None — LangGraph picks up from the checkpoint
+            async for output in campaign_generator.astream(None, config=config):
+                for node_name, node_state in output.items():
+                    if node_name == "PartyCreationNode":
                         if party_creation_step is None:
                             party_creation_step = cl.Step(name="⚔️ Rolling characters...", parent_id=parent_step.id)
                             await party_creation_step.send()
-                            
                         party = node_state.get('party_details')
                         if party:
                             party_name = party.get('party_name', 'The Nameless')
                             chars = party.get('characters', [])
                             char_bullets = "\n".join([f"- **{c.get('name')}**: Level {c.get('level')} {c.get('race')} {c.get('class')}" for c in chars])
                             party_creation_step.output = f"### 📝 Roster: {party_name}\n\n{char_bullets}"
-                            
-                            # Only change the name to "Party Assembled" when it's fully done
                             party_creation_step.name = "⚔️ Party Assembled"
                             await party_creation_step.update()
-                            
-                            # Preemptively update the parent step for the NEXT node's execution
                             parent_step.name = "📜 Consulting the ancient tomes and penning the lore..."
                             await parent_step.update()
                         else:
@@ -186,9 +266,8 @@ async def generate_campaign(state: dict):
                                 tools_str = "\n".join([f"- 🔍 Asking the archives about: `{name}`..." for name in tools_called])
                                 party_creation_step.output = f"Researching arcane secrets and armories...\n\n{tools_str}"
                             else:
-                                party_creation_step.output = "Gathering stats and equipment... Pondering the next move..."
+                                party_creation_step.output = "Gathering stats and equipment..."
                             await party_creation_step.update()
-                            
                     elif node_name == "MCPToolNode":
                         if party_creation_step:
                             msgs = node_state.get('messages', [])
@@ -201,37 +280,30 @@ async def generate_campaign(state: dict):
                     elif node_name == "NarrativeWriterNode":
                         async with cl.Step(name="Writing the epic...", parent_id=parent_step.id) as step:
                             step.output = f"**Title chosen:** {node_state.get('title')}\n\nReviewing lore and formatting markdown..."
-                            
                             step.name = "📜 Lore Penned"
                             await step.update()
-                    
-                    final_state.update(node_state) 
-            
-            # THE FINAL TOUCH: Update the parent step right before the loading animation stops
+                    final_state.update(node_state)
+
             parent_step.name = "🐉 Campaign successfully forged!"
             await parent_step.update()
 
-        # Format the fully accumulated state
         formatted_output = format_campaign_output(final_state)
-        
-        # Save characters to session memory
-        if "party_details" in final_state and "characters" in final_state["party_details"]:
+        if "party_details" in final_state and "characters" in final_state.get("party_details", {}):
             state["characters"] = final_state["party_details"]["characters"]
             cl.user_session.set("campaign_params", state)
 
         chat_history = cl.user_session.get("chat_history", [])
-            
         chat_history.append(AIMessage(content="Campaign generated successfully."))
         cl.user_session.set("chat_history", chat_history)
-        
-        # Send the final Markdown message to the main chat
+
         await cl.Message(content=formatted_output).send()
-        
+
     except Exception as e:
         import traceback
         error_details = traceback.format_exc()
         print(error_details)
-        await cl.Message(content=f"**Error generating campaign:** {str(e)}\n\n```text\n{error_details}\n```").send()
+        await cl.Message(content=f"**Error resuming campaign:** {str(e)}\n\n```text\n{error_details}\n```").send()
+
 
 def format_campaign_output(result: dict) -> str:
     title = result.get('title', 'Epic Adventure')
@@ -505,9 +577,42 @@ async def setup_campaign_settings(settings:dict):
 @cl.action_callback("start_campaign_btn")
 async def start_campaign(action: cl.Action):
     await action.remove()
+    cl.user_session.set("pending_plan", None) # Clear any old plans
     state = cl.user_session.get("campaign_params", {})
+    await run_planner_phase(state)
 
-    await generate_campaign(state)
+@cl.action_callback("approve_plan_btn")
+async def approve_plan(action: cl.Action):
+    await action.remove()
+    await cl.Message(content="*Excellent! Rolling the dice and summoning your heroes...*").send()
+    await resume_campaign()
+
+@cl.action_callback("edit_plan_btn")
+async def edit_plan(action: cl.Action):
+    await action.remove()
+    # Reset the thread so the planner re-runs from scratch with the edit
+    import uuid
+    cl.user_session.set("thread_id", str(uuid.uuid4()))
+    await cl.Message(content="Of course! Tell me what you'd like to change — villain, plot, locations, difficulty — anything goes. I'll re-plan the campaign with your input.").send()
+
+@cl.action_callback("dynamic_edit_btn")
+async def dynamic_edit(action: cl.Action):
+    await action.remove()
+    edit_payload = action.payload.get("edit")
+    
+    # Show the user what they clicked
+    await cl.Message(content=f"*{edit_payload}*").send()
+    
+    import uuid
+    cl.user_session.set("thread_id", str(uuid.uuid4()))
+    
+    # Inject this edit into the state and run the planner again directly
+    state = cl.user_session.get("campaign_params")
+    state["requirements"] = f"{state.get('requirements', '')} {edit_payload}".strip()
+    cl.user_session.set("campaign_params", state)
+    
+    await cl.Message(content="*Excellent choice. Re-weaving the threads of fate...*").send()
+    await run_planner_phase(state)
 
 @cl.on_message
 async def on_message(message: cl.Message):
@@ -520,6 +625,7 @@ async def on_message(message: cl.Message):
             "difficulty": None, "requirements": "", "characters": [], "roster_locked": True
         })
         cl.user_session.set("chat_history", [])
+        cl.user_session.set("pending_plan", None)
         await cl.Message(content="✨ Campaign parameters reset! Let's start fresh.").send()
         return
 
@@ -555,8 +661,7 @@ async def on_message(message: cl.Message):
     wants_to_generate = extracted_data.user_confirmed_start if extracted_data else False
   
     if not missing_keys or wants_to_generate:
-        # Fallbacks to prevent Pydantic crashes if the user forces generation early
-        await generate_campaign(state)
+        await run_planner_phase(state)
 
     else:
         current_state_str = "\n".join([f"- {k.replace('_', ' ').title()}: {v}" for k, v in state.items() if v and k in required_keys])
