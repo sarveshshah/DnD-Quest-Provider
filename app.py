@@ -23,7 +23,7 @@ extractor_model = ChatGoogleGenerativeAI(
 )
 
 chat_model = ChatGoogleGenerativeAI(
-    model="gemini-2.5-flash",
+    model="gemini-2.5-pro",
     temperature=0.7,
     verbose=True
 )
@@ -251,9 +251,10 @@ async def resume_campaign():
                             await party_creation_step.send()
                         party = node_state.get('party_details')
                         if party:
-                            party_name = party.get('party_name', 'The Nameless')
-                            chars = party.get('characters', [])
-                            char_bullets = "\n".join([f"- **{c.get('name')}**: Level {c.get('level')} {c.get('race')} {c.get('class')}" for c in chars])
+                            party_dict = party if isinstance(party, dict) else party.model_dump()
+                            party_name = party_dict.get('party_name', 'The Nameless')
+                            chars = party_dict.get('characters', [])
+                            char_bullets = "\n".join([f"- **{c.get('name')}**: Level {c.get('level')} {c.get('race')} {c.get('class_name', c.get('class'))}" for c in chars])
                             party_creation_step.output = f"### 📝 Roster: {party_name}\n\n{char_bullets}"
                             party_creation_step.name = "⚔️ Party Assembled"
                             await party_creation_step.update()
@@ -282,12 +283,27 @@ async def resume_campaign():
                             step.output = f"**Title chosen:** {node_state.get('title')}\n\nReviewing lore and formatting markdown..."
                             step.name = "📜 Lore Penned"
                             await step.update()
+                    elif node_name == "CharacterPortraitNode":
+                        async with cl.Step(name="🎨 Conjuring portraits from the astral plane...", parent_id=parent_step.id) as step:
+                            party = node_state.get('party_details')
+                            if party:
+                                party_dict = party if isinstance(party, dict) else party.model_dump()
+                                chars = party_dict.get('characters', [])
+                                if chars:
+                                    count = sum(1 for c in chars if c.get('image_base64') and c.get('image_base64') != "[GENERATED IMAGE STORED]")
+                                    if count > 0:
+                                        step.output = f"✨ Successfully conjured {count} portraits!"
+                                    else:
+                                        step.output = "The magic faded. No portraits were conjured."
+                            step.name = "🎨 Portraits Conjured"
+                            await step.update()
+
                     final_state.update(node_state)
 
             parent_step.name = "🐉 Campaign successfully forged!"
             await parent_step.update()
 
-        formatted_output = format_campaign_output(final_state)
+        formatted_output, images = format_campaign_output(final_state)
         if "party_details" in final_state and "characters" in final_state.get("party_details", {}):
             state["characters"] = final_state["party_details"]["characters"]
             cl.user_session.set("campaign_params", state)
@@ -296,7 +312,7 @@ async def resume_campaign():
         chat_history.append(AIMessage(content="Campaign generated successfully."))
         cl.user_session.set("chat_history", chat_history)
 
-        await cl.Message(content=formatted_output).send()
+        await cl.Message(content=formatted_output, elements=images).send()
 
     except Exception as e:
         import traceback
@@ -393,18 +409,21 @@ def format_campaign_output(result: dict) -> str:
     lines.append("")
     
     # --- 2. PARTY AND CHARACTERS ---
-    party_data = result.get('party_details', {})
-    party_name = party_data.get('party_name', 'The Nameless Heroes') if party_data else 'The Nameless Heroes'
+    party_data = result.get('party_details')
+    party_dict = party_data if isinstance(party_data, dict) else (party_data.model_dump() if party_data else {})
+    party_name = party_dict.get('party_name', 'The Nameless Heroes') if party_dict else 'The Nameless Heroes'
+    
+    images = []
     
     lines.append(f"## ⚔️ {party_name}")
     lines.append("")
     
-    if party_data and 'party_name' in party_data:
-        characters = party_data.get('characters', [])
+    if party_dict and party_dict.get('characters'):
+        characters = party_dict.get('characters', [])
         for i, char in enumerate(characters, 1):
             name = char.get('name', f'Hero {i}')
             race = char.get('race', 'Unknown')
-            char_class = char.get('class', 'Adventurer')
+            char_class = char.get('class_name', char.get('class', 'Adventurer'))
             level = char.get('level', 1)
             alignment = char.get('alignment', 'True Neutral')
             quote = char.get('flavor_quote', 'Lets roll for initiative!')
@@ -415,6 +434,20 @@ def format_campaign_output(result: dict) -> str:
             
             # Character Header
             lines.append(f"### {name}")
+            
+            # --- Inline Image ---
+            img_b64 = char.get('image_base64')
+            if img_b64 and img_b64 != "[GENERATED IMAGE STORED]":
+                import base64
+                try:
+                    img_bytes = base64.b64decode(img_b64)
+                    slug_name = f"portrait-{i}"
+                    images.append(cl.Image(name=slug_name, content=img_bytes, display="inline"))
+                    lines.append(f"![{slug_name}]({slug_name})")
+                    lines.append("")
+                except Exception:
+                    pass
+
             lines.append(f"**Level {level} {race} {char_class}** • *{alignment}* • **{hp} HP** • **{ac} AC**")
             lines.append(f"> \"{quote}\"")
             lines.append("")
@@ -510,7 +543,7 @@ def format_campaign_output(result: dict) -> str:
             lines.append("---")
             lines.append("")
             
-    return "\n".join(lines)
+    return "\n".join(lines), images
 
 # --- Chainlit App ---
 @cl.on_chat_start

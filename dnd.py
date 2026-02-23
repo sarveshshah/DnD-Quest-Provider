@@ -23,6 +23,9 @@ import sys
 from mcp.client.sse import sse_client
 from mcp.client.session import ClientSession
 
+import os
+from google import genai
+
 @asynccontextmanager
 async def mcp_server_session():
     """Reusable context manager for MCP tool connections."""
@@ -57,6 +60,8 @@ writer_model = ChatGoogleGenerativeAI(
     temperature=0.7, # Higher temperature for creative writing
     verbose=False
 )
+
+imagen_client = genai.Client()
 
 # --- Schemas ---
 class RouteDecision(BaseModel):
@@ -107,6 +112,9 @@ class Character(BaseModel):
     # Combat & Abilities
     hp: int = Field(description="Max hit points calculated for their level and class")
     ac: int = Field(description="Armor Class based on their gear")
+
+    # Image
+    image_base64: Optional[str] = Field(default=None, description="A Base64 string of the character's generated portrait.")
 
     weapons: list[Weapon] = Field(
         default_factory=list, 
@@ -222,6 +230,7 @@ def planner_node(state: CampaignState):
     Constraints:
     - Terrain: {state.terrain}
     - Difficulty: {state.difficulty}
+    - Party Size: {state.party_details.party_size if state.party_details else 4} players
     - User Requirements: {state.requirements or 'None'}
 
     ### EXISTING PLAN (Reference for Edits) ###
@@ -234,9 +243,11 @@ def planner_node(state: CampaignState):
     Analyze the requirements and create a strict CampaignPlan. Ensure the boss, plot points, and locations make sense together.
 
     CRITICAL RULES:
-    1. EDITING MODE: If an "Existing Plan" is provided, ONLY modify the specific elements requested (e.g., changing a name). 
-    2. THE COPY-PASTE MANDATE: For every field NOT requested to change, copy the content EXACTLY from the Existing Plan. Do not paraphrase or "improve" it.
-    3. COLD START: If no Existing Plan is provided, create a brand new CampaignPlan from scratch.
+    1. EXPLICIT SIZING: You MUST generate EXACTLY {state.party_details.party_size if state.party_details else 4} heroes in the `suggested_party` array.
+    2. EXACT CHARACTER NAMES: If the user provides specific character names in the requirements (like 'Dr. Strange', 'Shrek', etc.), you MUST use those exact names in your `suggested_party`. Do not alter them to fit the fantasy lore.
+    3. EDITING MODE: If an "Existing Plan" is provided, ONLY modify the specific elements requested (e.g., changing a name). 
+    4. THE COPY-PASTE MANDATE: For every field NOT requested to change, copy the content EXACTLY from the Existing Plan. Do not paraphrase or "improve" it.
+    5. COLD START: If no Existing Plan is provided, create a brand new CampaignPlan from scratch.
     """
     structured_llm = model.with_structured_output(CampaignPlan)
     plan = structured_llm.invoke(prompt)
@@ -350,6 +361,63 @@ async def mcp_tool_node(state: CampaignState):
         return result
     return {"messages": []}
 
+async def character_portrait_node(state: CampaignState):
+    """Node 4: Generates portraits for each character using Google Imagen."""
+    if not state.party_details or not state.party_details.characters:
+        return {}
+
+    prompt_template = """A high-quality digital fantasy portrait of a D&D character. {description}. 
+    They are a {race} {class_name}. 
+    Make it a vivid character design fitting for a TTRPG token or character sheet, featuring dynamic lighting, render a high quality image for a character sheet for a DND campaign.
+    Use additional context available in {terrain} to design armor and clothing. Also render them in a pose that reflects their personality and class. They may also carry weapons or spellbooks.
+    While not the most important, try to render something that shows their {weapons} or {inventory} items depending on what you see fit. Do not add any text to the image.
+    Add a cool background that reflects the {terrain}.      
+    """
+    
+    # We edit the list of characters in-place
+    for char in state.party_details.characters:
+        try:
+            weapons_str = ", ".join(w.name for w in char.weapons) if char.weapons else "none"
+            inventory_str = ", ".join(char.inventory) if char.inventory else "none"
+
+            full_prompt = prompt_template.format(
+                race = char.race,
+                class_name = char.class_name,
+                description = char.physical_description if char.physical_description else "A brave adventurer.",
+                terrain = state.terrain if state.terrain else "fantasy world",
+                weapons = weapons_str,
+                inventory = inventory_str
+            )
+            
+            # Call Imagen 3
+            result = imagen_client.models.generate_images(
+                model='imagen-4.0-generate-001',
+                prompt = full_prompt,
+                config=dict(
+                    number_of_images=1,
+                    output_mime_type="image/jpeg",
+                    aspect_ratio="1:1"
+                )
+            )
+            
+            # The result contains generated_images, get the first one's bytes
+            if result.generated_images:
+                import base64
+                import asyncio
+                raw_bytes = result.generated_images[0].image.image_bytes
+                base64_img = base64.b64encode(raw_bytes).decode('utf-8')
+                char.image_base64 = base64_img
+                print(f"✨ Successfully conjured a portrait for {char.name}. Resting a moment to regain spell slots... (API cooldown)")
+                await asyncio.sleep(4)
+            
+        except Exception as e:
+            print(f"❌ A wild magic surge disrupted the portrait for {char.name}: {e}")
+            import asyncio
+            await asyncio.sleep(4) # Still wait even on failure to recover quota
+            pass # Keep going even if one portrait fails
+            
+    return {"party_details": state.party_details}
+
 def narrative_writer_node(state: CampaignState):
     """Node 3: Takes the structured facts and writes the final, high-quality Markdown prose."""
 
@@ -357,7 +425,16 @@ def narrative_writer_node(state: CampaignState):
     state.messages.clear()
 
     plan_context = state.campaign_plan.model_dump_json(indent = 2) if state.campaign_plan else "No plan available."
-    party_context = state.party_details.model_dump_json(indent = 2, by_alias = True) if state.party_details else "No party details."
+    
+    party_context = "No party details."
+    if state.party_details:
+        party_dict = state.party_details.model_dump(by_alias=True)
+        # Strip out the massive base64 image strings before sending to LLM to prevent Token Limit 400 errors
+        for char in party_dict.get('characters', []):
+            if 'image_base64' in char:
+                char['image_base64'] = "[GENERATED IMAGE STORED]"
+        import json
+        party_context = json.dumps(party_dict, indent=2)
 
     existing_narrative = "None"
     if state.title:
@@ -403,16 +480,14 @@ def narrative_writer_node(state: CampaignState):
         "rewards": content.rewards
     }
 
-
-
 def determine_next_steps(state: CampaignState, current_node: str):
     """Determine the next steps in the campaign generation process."""
 
     if current_node == "PlannerNode":
         return "PartyCreationNode"
     elif current_node == "PartyCreationNode":
-        if not state.title:
-            return "NarrativeWriterNode"
+        if not state.title: # If no narrative has been written yet, go to character portraits
+            return "CharacterPortraitNode"
     
         prompt = f"""Did the user request a change to the story, narrative, or TITLE, or just character stats?
 
@@ -423,9 +498,27 @@ def determine_next_steps(state: CampaignState, current_node: str):
         - "NO" if they only want character changes
         """
 
-
         wants_story = "YES" in model.invoke(prompt).content.upper()
-        return "NarrativeWriterNode" if wants_story else END
+        return "CharacterPortraitNode" if wants_story else END # If story changes, go to portraits, otherwise end.
+
+    elif current_node == "CharacterPortraitNode":
+        # After portraits, if a narrative exists, we might need to rewrite it.
+        # If state.title exists, it means a narrative was previously generated.
+        # If state.title does not exist, it means this is the first run, so we proceed to narrative.
+        if state.title:
+            # If a narrative exists, check if user requested changes that would require rewriting.
+            prompt = f"""Did the user request a change to the story, narrative, or TITLE?
+
+            User Request: {state.requirements}
+            
+            Respond with exactly ONE WORD:
+            - "YES" if they explicitly asked for story/plot/narrative/title changes
+            - "NO" if they only want character changes (which are already handled by portraits)
+            """
+            wants_story = "YES" in model.invoke(prompt).content.upper()
+            return "NarrativeWriterNode" if wants_story else END
+        else:
+            return "NarrativeWriterNode" # First run, always go to narrative after portraits
 
     elif current_node == "NarrativeWriterNode":
         return END
@@ -437,6 +530,7 @@ campaign_graph = StateGraph(CampaignState)
 
 campaign_graph.add_node("PlannerNode", planner_node)
 campaign_graph.add_node("PartyCreationNode", party_creation_node)
+campaign_graph.add_node("CharacterPortraitNode", character_portrait_node)
 campaign_graph.add_node("NarrativeWriterNode", narrative_writer_node)
 campaign_graph.add_node("MCPToolNode", mcp_tool_node)
 
@@ -461,7 +555,7 @@ def route_tools_or_continue(state: CampaignState):
         return "tools"
     return "done"
 
-# Step 3: Dynamic Routing
+# Step 3: Dynamic Routing for PartyCreationNode
 campaign_graph.add_conditional_edges(
     "PartyCreationNode",
     route_tools_or_continue,
@@ -474,7 +568,9 @@ campaign_graph.add_conditional_edges(
 # A fake passthrough node just to let LangGraph compile the route_next edge
 def dummy_route_node(state: CampaignState): return {"messages": []}
 campaign_graph.add_node("route_next", dummy_route_node)
-campaign_graph.add_conditional_edges("route_next", lambda state: determine_next_steps(state, "PartyCreationNode"), {"NarrativeWriterNode": "NarrativeWriterNode", END: END})
+campaign_graph.add_conditional_edges("route_next", lambda state: determine_next_steps(state, "PartyCreationNode"), {"CharacterPortraitNode": "CharacterPortraitNode", "NarrativeWriterNode": "NarrativeWriterNode", END: END})
+
+campaign_graph.add_conditional_edges("CharacterPortraitNode", lambda state: determine_next_steps(state, "CharacterPortraitNode"), {"NarrativeWriterNode": "NarrativeWriterNode", END: END})
 
 campaign_graph.add_edge("MCPToolNode", "PartyCreationNode")
 campaign_graph.add_edge("NarrativeWriterNode", END)
