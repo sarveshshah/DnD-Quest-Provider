@@ -20,12 +20,15 @@ import asyncio
 import traceback
 import sys
 import base64
+import random
     
 from mcp.client.sse import sse_client
 from mcp.client.session import ClientSession
 
-import os
 from google import genai
+from google.genai import types
+from PIL import Image
+
 import json
 
 @asynccontextmanager
@@ -110,7 +113,7 @@ class Character(BaseModel):
     flaws: Optional[str] = Field(default=None, description="Notable flaws")
     alignment: str = Field(description="D&D alignment (e.g., Chaotic Good, Lawful Evil)")
     flavor_quote: str = Field(description="A short, in-character quote that sums up their personality")
-    physical_description: str = Field(description="A vivid, detailed physical description of the character's appearance. Include race features, build, hair, eyes, clothing, and any notable markings or gear. This will be used for image generation.")
+    physical_description: str = Field(description="A vivid, detailed physical description of the character's appearance. CRITICAL: You MUST include their exact height, build, and relative size compared to humans, so they can be accurately placed next to each other in a group portrait. Include race features, hair, eyes, clothing, and notable markings.")
 
     # Combat & Abilities
     hp: int = Field(description="Max hit points calculated for their level and class")
@@ -165,6 +168,9 @@ class CampaignPlan(BaseModel):
     key_locations: list[str] = Field(description="Specific areas within the terrain the party will visit")
     suggested_party: list[BaseCharacter] = Field(description="A list of suggested heroes (name, race, class) that fit this specific campaign.")
     loot_concept: str = Field(description="The general idea for the final reward")
+    cover_image_base64: Optional[str] = Field(default=None, description="Campaign cover art")
+    group_image_base64: Optional[str] = Field(default=None, description="Group portrait of all heroes")
+    macguffin_image_base64: Optional[str] = Field(default=None, description="Image of the final loot or artifact")
 
 class CampaignContent(BaseModel):
     """The final generated prose."""
@@ -214,7 +220,6 @@ def search_wikipedia(query: str) -> str:
 # --- Nodes ---
 def planner_node(state: CampaignState):
     """Node 1: Establishes the facts and structured outline of the campaign."""
-    import random
     sparks = ["ancient ruins", "political intrigue", "planar invasion", "an undead curse", "a feywild connection", "a dragon cult", "abyssal corruption", "a lost magical artifact", "a celestial prophecy", "a dark guild"]
     spark = random.choice(sparks)
     search_query = f"D&D quest ideas for a {state.difficulty or 'Medium'} campaign in {state.terrain or 'Mixed Terrain'} involving {spark}"
@@ -367,6 +372,68 @@ async def mcp_tool_node(state: CampaignState):
         return result
     return {"messages": []}
 
+async def generate_image_base64(prompt: str) -> Optional[str]:
+    """Helper function to call Gemini 2.5 Flash Image and return a base64 string."""
+    try:
+        config = types.GenerateContentConfig(
+            response_modalities = ['TEXT', 'IMAGE'],
+            image_config = types.ImageConfig(
+                aspect_ratio = "16:9",
+                image_size = "4K",
+            ),
+        )
+        result = await imagen_client.aio.models.generate_content(
+            model = 'gemini-2.5-flash-image',
+            contents = prompt,
+            config = config,
+        )
+        for part in result.parts:
+            if part.inline_data is not None:
+                print("✨ Successfully conjured an image. Resting a moment to regain spell slots... (API cooldown)")
+                await asyncio.sleep(4)
+                return base64.b64encode(part.inline_data.data).decode('utf-8')
+    except Exception as e:
+        print(f"❌ A wild magic surge disrupted the image generation: {e}")
+
+async def generate_image_base64_multimodal(prompt: str, images_b64: list[str]) -> Optional[str]:
+    """Helper function to call Gemini 1.5 Pro (which supports multimodal inference) to redraw/combine images."""
+    try:
+        contents = [prompt]
+        for b64 in images_b64:
+            if b64 and b64 != "[GENERATED IMAGE STORED]":
+                img_data = base64.b64decode(b64)
+                contents.append(
+                    types.Part.from_bytes(
+                        data=img_data,
+                        mime_type="image/jpeg"
+                    )
+                )
+                
+        config = types.GenerateContentConfig(
+            response_modalities = ['TEXT', 'IMAGE'],
+            image_config = types.ImageConfig(
+                aspect_ratio = "16:9",
+            ),
+        )
+
+        result = await imagen_client.aio.models.generate_content(
+            model='gemini-2.5-flash-image',
+            contents=contents,
+            config=config,
+        )
+        
+        for part in result.parts:
+            if part.inline_data is not None:
+                print("✨ Successfully conjured a magical image. Resting a moment to regain spell slots... (API cooldown)")
+                await asyncio.sleep(4)
+                return base64.b64encode(part.inline_data.data).decode('utf-8')
+
+    except Exception as e:
+        print(f"❌ A wild magic surge disrupted the magical image generation: {e}")
+        await asyncio.sleep(4)
+
+    return None
+
 async def character_portrait_node(state: CampaignState):
     """Node 4: Generates portraits for each character using Google Imagen."""
     if not state.party_details or not state.party_details.characters:
@@ -383,71 +450,73 @@ async def character_portrait_node(state: CampaignState):
     # Generate villain portrait first if present
     if state.campaign_plan and state.campaign_plan.villain_statblock:
         villain = state.campaign_plan.villain_statblock
-        try:
-            villain_prompt = f"""A breathtaking, masterpiece digital painting of a sinister D&D villain, official Dungeons and Dragons 5e sourcebook art style, trending on ArtStation. 
-            Subject: {villain.physical_description}
-            Details: Render them in an intimidating, dramatic pose that exudes power and menace. imposing silhouette.
-            Aesthetic: High-fidelity dark fantasy concept art, Unreal Engine 5 render, chilling atmosphere, hyperdetailed villain design, gothic fantasy, eerie glowing accents, cinematic lighting, dramatic shadows, 8k resolution, photorealistic textures, vivid moody colors, painted by Greg Rutkowski and Magali Villeneuve. 
-            Background: A deeply atmospheric, dark, and cinematic background depicting a corrupted {state.terrain if state.terrain else 'fantasy world'}.
-            Critical Rule: NO TEXT, NO WATERMARKS, NO UI ELEMENTS, NO BORDERS.
-            """
-            # Call Imagen 4
-            result = imagen_client.models.generate_images(
-                model = 'imagen-4.0-generate-001',
-                prompt = villain_prompt,
-                config = dict(
-                    number_of_images = 1,
-                    output_mime_type = "image/jpeg",
-                    aspect_ratio = "1:1"
-                )
-            )
-            if result.generated_images:
-                raw_bytes = result.generated_images[0].image.image_bytes
-                villain.image_base64 = base64.b64encode(raw_bytes).decode('utf-8')
-                print(f"✨ Successfully conjured a portrait for the villain. Resting a moment to regain spell slots... (API cooldown)")
-                await asyncio.sleep(4)
-        except Exception as e:
-            print(f"❌ A wild magic surge disrupted the villain portrait: {e}")
-            await asyncio.sleep(4)
+        villain_prompt = f"""A breathtaking, masterpiece digital painting of a sinister D&D villain, official Dungeons and Dragons 5e sourcebook art style, trending on ArtStation. 
+        Subject: {villain.physical_description}
+        Details: Render them in an intimidating, dramatic pose that exudes power and menace. imposing silhouette.
+        Aesthetic: High-fidelity dark fantasy concept art, Unreal Engine 5 render, chilling atmosphere, hyperdetailed villain design, gothic fantasy, eerie glowing accents, cinematic lighting, dramatic shadows, 8k resolution, photorealistic textures, vivid moody colors, painted by Greg Rutkowski and Magali Villeneuve. 
+        Background: A deeply atmospheric, dark, and cinematic background depicting a corrupted {state.terrain if state.terrain else 'fantasy world'}.
+        Critical Rule: NO TEXT, NO WATERMARKS, NO UI ELEMENTS, NO BORDERS.
+        """
+        b64 = await generate_image_base64(villain_prompt)
+        if b64:
+            villain.image_base64 = b64
 
-    # We edit the list of characters in-place
+    # We generate individual portraits
     for char in state.party_details.characters:
-        try:
-            weapons_str = ", ".join(w.name for w in char.weapons) if char.weapons else "none"
-            inventory_str = ", ".join(char.inventory) if char.inventory else "none"
+        weapons_str = ", ".join(w.name for w in char.weapons) if char.weapons else "none"
+        inventory_str = ", ".join(char.inventory) if char.inventory else "none"
 
-            full_prompt = prompt_template.format(
-                race = char.race,
-                class_name = char.class_name,
-                description = char.physical_description if char.physical_description else "A brave adventurer.",
-                terrain = state.terrain if state.terrain else "fantasy world",
-                weapons = weapons_str,
-                inventory = inventory_str
-            )
+        full_prompt = f"""A breathtaking, masterpiece digital painting of a D&D character, official Dungeons and Dragons 5e sourcebook art style. 
+        Subject: A {char.race} {char.class_name}. {char.physical_description if char.physical_description else 'A brave adventurer.'}
+        Details: They are wielding {weapons_str} and carrying {inventory_str}. Ensure their gear matches their class.
+        Aesthetic: High-fidelity fantasy concept art, Unreal Engine 5 render, incredibly detailed, heroic pose, cinematic lighting, 8k resolution, photorealistic textures, painted by Greg Rutkowski and Magali Villeneuve. 
+        Background: A beautiful, atmospheric background depicting a {state.terrain if state.terrain else 'fantasy world'}.
+        Critical Rule: NO TEXT, NO WATERMARKS, NO UI ELEMENTS, NO BORDERS."""
+        
+        b64 = await generate_image_base64(full_prompt)
+        if b64:
+            char.image_base64 = b64
             
-            # Call Imagen 3
-            result = imagen_client.models.generate_images(
-                model = 'imagen-4.0-generate-001',
-                prompt = full_prompt,
-                config = dict(
-                    number_of_images = 1,
-                    output_mime_type = "image/jpeg",
-                    aspect_ratio = "1:1"
-                )
-            )
+    # --- Generate Cover Image ---
+    if state.campaign_plan and state.campaign_plan.key_locations:
+        cover_prompt = f"""A breathtaking, masterpiece digital landscape painting of {state.campaign_plan.key_locations[0]}. Terrain: {state.terrain if state.terrain else 'fantasy world'}. 
+        Aesthetic: High-fidelity fantasy concept art, Unreal Engine 5 render, global illumination, ray tracing, incredibly detailed, best quality, cinematic volumetric lighting, 8k resolution, photorealistic textures, vivid colors, painted by Greg Rutkowski and Magali Villeneuve. 
+        Critical Rule: NO TEXT, NO WATERMARKS, NO UI ELEMENTS, NO BORDERS."""
+        b64 = await generate_image_base64(cover_prompt)
+        if b64:
+            state.campaign_plan.cover_image_base64 = b64
             
-            # The result contains generated_images, get the first one's bytes
-            if result.generated_images:
-                raw_bytes = result.generated_images[0].image.image_bytes
-                base64_img = base64.b64encode(raw_bytes).decode('utf-8')
-                char.image_base64 = base64_img
-                print(f"✨ Successfully conjured a portrait for {char.name}. Resting a moment to regain spell slots... (API cooldown)")
-                await asyncio.sleep(4)
+    # --- Generate Group Image logically referencing the Hero Portraits ---
+    if state.party_details and state.party_details.characters:
+        heroes_b64 = [c.image_base64 for c in state.party_details.characters if c.image_base64]
+        if heroes_b64:
+            heroes_desc = "\n".join([f"- {c.name} ({c.race} {c.class_name}): {c.physical_description}" for c in state.party_details.characters])
+            group_prompt = f"""A breathtaking, masterpiece digital painting of a diverse adventuring party standing together heroically. 
+            The party consists of EXACTLY {len(state.party_details.characters)} characters:
+            {heroes_desc}
+            Details: Render all {len(state.party_details.characters)} characters standing next to each other, accurately reflecting their different heights, sizes, and builds in a cinematic group shot. They are in a {state.terrain if state.terrain else 'fantasy world'} environment. DO NOT render them as a grid; composite them into a single, cohesive cinematic shot looking at the camera. Use the provided individual portraits as direct visual reference for their faces, armor, and aesthetic.
+            Aesthetic: High-fidelity fantasy concept art, Unreal Engine 5 render, global illumination, ray tracing, incredibly detailed, best quality, cinematic volumetric lighting, 8k resolution, photorealistic textures, vivid colors. 
+            Critical Rule: NO TEXT, NO WATERMARKS, NO BORDERS. YOU MUST INCLUDE EXACTLY {len(state.party_details.characters)} DISTINCT PEOPLE."""
             
-        except Exception as e:
-            print(f"❌ A wild magic surge disrupted the portrait for {char.name}: {e}")
-            await asyncio.sleep(4) # Still wait even on failure to recover quota
-            pass # Keep going even if one portrait fails
+            b64 = await generate_image_base64_multimodal(group_prompt, heroes_b64)
+            if b64:
+                state.campaign_plan.group_image_base64 = b64
+            else:
+                # Fallback to the original math logic if the API rejects the multimodal format
+                print("⚠️ Multimodal stitching failed. Falling back to simple prompt generation without reference images.")
+                b64 = await generate_image_base64(group_prompt)
+                if b64:
+                    state.campaign_plan.group_image_base64 = b64
+
+    # --- Generate Macguffin Image ---
+    if state.campaign_plan and state.campaign_plan.loot_concept:
+        macguffin_prompt = f"""A breathtaking, masterpiece digital painting of a legendary D&D artifact or treasure: {state.campaign_plan.loot_concept}. 
+        Aesthetic: High-fidelity fantasy concept art, Unreal Engine 5 render, glowing magical aura, intricate details, best quality, dramatic shadows, cinematic lighting, 8k resolution, photorealistic textures. 
+        Critical Rule: NO TEXT, NO WATERMARKS, NO UI ELEMENTS, NO BORDERS."""
+        b64 = await generate_image_base64(macguffin_prompt)
+        if b64:
+            state.campaign_plan.macguffin_image_base64 = b64
+
     return {
         "party_details": state.party_details,
         "campaign_plan": state.campaign_plan
@@ -461,9 +530,14 @@ def narrative_writer_node(state: CampaignState):
 
     if state.campaign_plan:
         plan_dict = state.campaign_plan.model_dump(by_alias=True)
-        # Strip out the base64 image string for the villain
         if plan_dict.get('villain_statblock') and 'image_base64' in plan_dict['villain_statblock']:
             plan_dict['villain_statblock']['image_base64'] = "[GENERATED IMAGE STORED]"
+        if plan_dict.get('cover_image_base64'):
+            plan_dict['cover_image_base64'] = "[GENERATED IMAGE STORED]"
+        if plan_dict.get('group_image_base64'):
+            plan_dict['group_image_base64'] = "[GENERATED IMAGE STORED]"
+        if plan_dict.get('macguffin_image_base64'):
+            plan_dict['macguffin_image_base64'] = "[GENERATED IMAGE STORED]"
         plan_context = json.dumps(plan_dict, indent=2)
     else:
         plan_context = "No plan available."
@@ -609,9 +683,22 @@ campaign_graph.add_conditional_edges(
 # A fake passthrough node just to let LangGraph compile the route_next edge
 def dummy_route_node(state: CampaignState): return {"messages": []}
 campaign_graph.add_node("route_next", dummy_route_node)
-campaign_graph.add_conditional_edges("route_next", lambda state: determine_next_steps(state, "PartyCreationNode"), {"CharacterPortraitNode": "CharacterPortraitNode", "NarrativeWriterNode": "NarrativeWriterNode", END: END})
+campaign_graph.add_conditional_edges(
+    "route_next", 
+    lambda state: determine_next_steps(state, "PartyCreationNode"),
+     {
+        "CharacterPortraitNode": "CharacterPortraitNode", 
+        "NarrativeWriterNode": "NarrativeWriterNode", 
+        END: END
+     })
 
-campaign_graph.add_conditional_edges("CharacterPortraitNode", lambda state: determine_next_steps(state, "CharacterPortraitNode"), {"NarrativeWriterNode": "NarrativeWriterNode", END: END})
+campaign_graph.add_conditional_edges(
+    "CharacterPortraitNode", 
+    lambda state: determine_next_steps(state, "CharacterPortraitNode"), 
+    {
+        "NarrativeWriterNode": "NarrativeWriterNode", 
+        END: END
+    })
 
 campaign_graph.add_edge("MCPToolNode", "PartyCreationNode")
 campaign_graph.add_edge("NarrativeWriterNode", END)

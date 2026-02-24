@@ -11,11 +11,27 @@ from langchain_core.messages import HumanMessage, AIMessage
 import uuid
 import base64
 import traceback
+from datetime import datetime, timezone
+
+from chainlit.logger import logger
 
 from dnd import app as campaign_generator, CampaignState, PartyDetails, CampaignPlan
 
+from chainlit.data.sql_alchemy import SQLAlchemyDataLayer
+import chainlit.data as cl_data
+import os
+
 from dotenv import load_dotenv
 load_dotenv()
+
+@cl.data_layer
+def get_data_layer():
+    return SQLAlchemyDataLayer(conninfo="sqlite+aiosqlite:///./db/chainlit.db")
+
+@cl.password_auth_callback
+def auth_callback(username: str, password: str):
+    return cl.User(identifier = username)
+
 
 # --- Models ---
 extractor_model = ChatGoogleGenerativeAI(
@@ -88,17 +104,6 @@ CONVERSATIONAL_PROMPT = ChatPromptTemplate.from_messages([
     ("human", "{user_input}")
 ])
 
-# --- Helper Functions ---
-def _coerce_terrain(t_str: str) -> str:
-    valid = ["Arctic", "Coast", "Desert", "Forest", "Grassland", "Mountain", "Swamp", "Underdark"]
-    t_title = t_str.title()
-    return next((v.title() for v in valid if v in t_title), "Forest")
-
-def _coerce_difficulty(d_str: str) -> str:
-    valid = ["Easy", "Medium", "Hard", "Deadly"]
-    d_title = d_str.title()
-    return next((v.title() for v in valid if v in d_title), "Medium")
-
 async def run_planner_phase(state: dict):
     """Phase 1: Run just the PlannerNode, then pause and show the plan for HITL approval."""
     if not state.get("party_name"): state["party_name"] = "Not Provided"
@@ -129,30 +134,40 @@ async def run_planner_phase(state: dict):
     planner_plan = None
 
     try:
-        async with cl.Step(name="🗺️ Gathering the miniatures and mapping the realm...") as parent_step:
+        logger.info("Waiting for Planner...")
+        async with cl.Step(name = "🗺️ Gathering the miniatures and mapping the realm...") as parent_step:
             await parent_step.send()
             
-            async for output in campaign_generator.astream(initial_graph_state, config=config):
+            logger.info("Brainstorming the plot...")
+            planner_step = cl.Step(name = "✨ Pondering the orb... plotting the dark machinations...", parent_id = parent_step.id)
+            await planner_step.send()
+
+            async for output in campaign_generator.astream(initial_graph_state, config = config):
                 for node_name, node_state in output.items():
                     if node_name == "PlannerNode":
                         plan = node_state.get('campaign_plan')
                         planner_plan = plan
-                        async with cl.Step(name="Brainstorming the plot...", parent_id=parent_step.id) as step:
-                            if plan:
-                                plot_bullets = "\n".join([f"- {p}" for p in plan.plot_points])
-                                locations_bullets = "\n".join([f"- {l}" for l in plan.key_locations])
-                                villain_stats = ""
-                                if hasattr(plan, 'villain_statblock') and plan.villain_statblock:
-                                    vs = plan.villain_statblock
-                                    v_attacks = "\n  - " + "\n  - ".join(vs.attacks) if vs.attacks else ""
-                                    v_abilities = "\n  - " + "\n  - ".join(vs.special_abilities) if vs.special_abilities else ""
-                                    villain_stats = f"\n\n**Villain Statblock:**\n- **HP:** {vs.hp} | **AC:** {vs.ac}\n- _\"{vs.flavor_quote}\"_\n- **Attacks:**{v_attacks}\n- **Abilities:**{v_abilities}"
-                                step.output = f"### DM's Notes\n_{plan.thought_process}_\n\n**Villain:** {plan.primary_antagonist}{villain_stats}\n\n**Conflict:** {plan.core_conflict}\n\n**Key Locations:**\n{locations_bullets}\n\n**Plot Outline:**\n{plot_bullets}\n\n**Loot:** {plan.loot_concept}"
-                            else:
-                                step.output = "Thinking..."
-                            step.name = "🗺️ Campaign World Planned"
-                            await step.update()
-
+                        if plan:
+                            # Plot points   
+                            plot_bullets = "\n".join([f"- {p}" for p in plan.plot_points])
+                            # Locations
+                            locations_bullets = "\n".join([f"- {l}" for l in plan.key_locations])
+                            # Villain stats
+                            villain_stats = ""
+                            if hasattr(plan, 'villain_statblock') and plan.villain_statblock:
+                                vs = plan.villain_statblock
+                                v_attacks = "\n  - " + "\n  - ".join(vs.attacks) if vs.attacks else ""
+                                v_abilities = "\n  - " + "\n  - ".join(vs.special_abilities) if vs.special_abilities else ""
+                                villain_stats = f"\n\n**Villain Statblock:**\n- **HP:** {vs.hp} | **AC:** {vs.ac}\n- _\"{vs.flavor_quote}\"_\n- **Attacks:**{v_attacks}\n- **Abilities:**{v_abilities}"
+                            logger.info(f"World planned! Villain: {plan.primary_antagonist}, Conflict: {plan.core_conflict}")
+                            planner_step.output = f"### DM's Notes\n_{plan.thought_process}_\n\n**Villain:** {plan.primary_antagonist}{villain_stats}\n\n**Conflict:** {plan.core_conflict}\n\n**Key Locations:**\n{locations_bullets}\n\n**Plot Outline:**\n{plot_bullets}\n\n**Loot:** {plan.loot_concept}"
+                        else:
+                            logger.info("planner_step output updated.")
+                            planner_step.output = "Thinking..."
+                        planner_step.name = "🗺️ Campaign World Planned"
+                        planner_step.end = datetime.now(timezone.utc).isoformat()
+                        await planner_step.update()
+            # HITL Approval
             parent_step.name = "✋ Awaiting your approval..."
             await parent_step.update()
 
@@ -200,20 +215,20 @@ async def run_planner_phase(state: dict):
 
             # Generate dynamic suggestions
             suggestion_prompt = f"""Based on the current campaign plan:
-Villain: {villain_name}
-Conflict: {getattr(planner_plan, 'core_conflict', 'Not specified')}
-Terrain: {state.get('terrain')}
+            Villain: {villain_name}
+            Conflict: {getattr(planner_plan, 'core_conflict', 'Not specified')}
+            Terrain: {state.get('terrain')}
 
-Suggest 3 completely different directions the user might want to take this campaign by altering the plot, villain, or characters.
-"""
+            Suggest 3 completely different directions the user might want to take this campaign by altering the plot, villain, or characters.
+            """
             try:
                 suggestions = await chat_model.with_structured_output(DynamicHitlActions).ainvoke(suggestion_prompt)
                 actions = [
                     cl.Action(name="approve_plan_btn", payload={"approve": True}, label="✅ Looks great, continue!"),
+                    cl.Action(name="edit_plan_btn", payload={"edit": True}, label="✏️ Type custom change..."),
                     cl.Action(name="dynamic_edit_btn", payload={"edit": suggestions.action_1_payload}, label=f"✨ {suggestions.action_1_label}"),
                     cl.Action(name="dynamic_edit_btn", payload={"edit": suggestions.action_2_payload}, label=f"✨ {suggestions.action_2_label}"),
-                    cl.Action(name="dynamic_edit_btn", payload={"edit": suggestions.action_3_payload}, label=f"✨ {suggestions.action_3_label}"),
-                    cl.Action(name="edit_plan_btn", payload={"edit": True}, label="✏️ Type custom change...")
+                    cl.Action(name="dynamic_edit_btn", payload={"edit": suggestions.action_3_payload}, label=f"✨ {suggestions.action_3_label}")
                 ]
             except Exception as e:
                 # Fallback if suggestion generation fails
@@ -239,37 +254,51 @@ async def resume_campaign():
     final_state = {}
 
     try:
+        logger.info("Generating Campaign...")
         async with cl.Step(name="⚔️ Rolling initiative and crafting character sheets...") as parent_step:
             await parent_step.send()
             
-            party_creation_step = None
+            logger.info("Starting party generation...")
+            party_creation_step = cl.Step(name="⚔️ Rolling characters...", parent_id=parent_step.id)
+            party_creation_step.output = "💰 Distributing starting gold and equipping the party..."
+            await party_creation_step.send()
+            narrative_step = None
+            portrait_step = None
             
             # Resume by passing None — LangGraph picks up from the checkpoint
             async for output in campaign_generator.astream(None, config=config):
                 for node_name, node_state in output.items():
                     if node_name == "PartyCreationNode":
-                        if party_creation_step is None:
-                            party_creation_step = cl.Step(name="⚔️ Rolling characters...", parent_id=parent_step.id)
-                            await party_creation_step.send()
                         party = node_state.get('party_details')
                         if party:
                             party_dict = party if isinstance(party, dict) else party.model_dump()
                             party_name = party_dict.get('party_name', 'The Nameless')
                             chars = party_dict.get('characters', [])
                             char_bullets = "\n".join([f"- **{c.get('name')}**: Level {c.get('level')} {c.get('race')} {c.get('class_name', c.get('class'))}" for c in chars])
-                            party_creation_step.output = f"### 📝 Roster: {party_name}\n\n{char_bullets}"
+                            
+                            logger.info(f"Party Assembled: {party_name} with {len(chars)} heroes.")
+                            party_creation_step.output = f"### 🛡️ Our Heroes: {party_name}\n\n{char_bullets}"
                             party_creation_step.name = "⚔️ Party Assembled"
+                            party_creation_step.end = datetime.now(timezone.utc).isoformat()
                             await party_creation_step.update()
+                            
+                            logger.info("Writing the epic...")
                             parent_step.name = "📜 Consulting the ancient tomes and penning the lore..."
                             await parent_step.update()
+                            
+                            logger.info("Drafting narrative...")
+                            narrative_step = cl.Step(name="📜 Inscribing the legendary deeds onto parchment...", parent_id=parent_step.id)
+                            await narrative_step.send()
                         else:
                             msgs = node_state.get('messages', [])
                             if msgs and hasattr(msgs[-1], 'tool_calls') and msgs[-1].tool_calls:
                                 tools_called = [tc['name'] for tc in msgs[-1].tool_calls]
                                 tools_str = "\n".join([f"- 🔍 Asking the archives about: `{name}`..." for name in tools_called])
-                                party_creation_step.output = f"Researching arcane secrets and armories...\n\n{tools_str}"
+                                logger.info(f"📜 Consulting ancient tomes tools: {tools_called}")
+                                party_creation_step.output = f"📜 Consulting ancient tomes tools: {tools_str}"
                             else:
-                                party_creation_step.output = "Gathering stats and equipment..."
+                                logger.info("Gathering stats and equipment...")
+                                party_creation_step.output = "💰 Distributing starting gold and equipping the party..."
                             await party_creation_step.update()
                     elif node_name == "MCPToolNode":
                         if party_creation_step:
@@ -278,15 +307,27 @@ async def resume_campaign():
                                 tool_names = [m.name for m in msgs if hasattr(m, 'name') and m.name]
                                 if tool_names:
                                     tools_str = "\n".join([f"- 📖 Reading knowledge from `{name}`..." for name in tool_names])
-                                    party_creation_step.output = f"Reading responses from the D&D APIs...\n\n{tools_str}"
+                                    logger.info(f"Reading responses from the D&D APIs... {tool_names}")
+                                    party_creation_step.output = f"🦉 The familiar returns with tidings\n\n{tools_str}"
                                     await party_creation_step.update()
+
                     elif node_name == "NarrativeWriterNode":
-                        async with cl.Step(name="Writing the epic...", parent_id=parent_step.id) as step:
-                            step.output = f"**Title chosen:** {node_state.get('title')}\n\nReviewing lore and formatting markdown..."
-                            step.name = "📜 Lore Penned"
-                            await step.update()
+                        if narrative_step:
+                            logger.info(f"Lore Penned: {node_state.get('title')}")
+                            narrative_step.output = f"**Title chosen:** {node_state.get('title')}\n\nReviewing lore and formatting markdown..."
+                            narrative_step.name = "📜 Lore Penned"
+                            narrative_step.end = datetime.now(timezone.utc).isoformat()
+                            await narrative_step.update()
+                            
+                        logger.info("Conjuring portraits...")
+                        parent_step.name = "🎨 Conjuring portraits from the astral plane..."
+                        await parent_step.update()
+                        
+                        logger.info("Generating art...")
+                        portrait_step = cl.Step(name="Conjuring art from the ether...", parent_id=parent_step.id)
+                        await portrait_step.send()
                     elif node_name == "CharacterPortraitNode":
-                        async with cl.Step(name="🎨 Conjuring portraits from the astral plane...", parent_id=parent_step.id) as step:
+                        if portrait_step:
                             party = node_state.get('party_details')
                             if party:
                                 party_dict = party if isinstance(party, dict) else party.model_dump()
@@ -294,14 +335,18 @@ async def resume_campaign():
                                 if chars:
                                     count = sum(1 for c in chars if c.get('image_base64') and c.get('image_base64') != "[GENERATED IMAGE STORED]")
                                     if count > 0:
-                                        step.output = f"✨ Successfully conjured {count} portraits!"
+                                        logger.info(f"Successfully generated {count} images!")
+                                        portrait_step.output = f"✨ Successfully conjured {count} portraits from the astral weave!"
                                     else:
-                                        step.output = "The magic faded. No portraits were conjured."
-                            step.name = "🎨 Portraits Conjured"
-                            await step.update()
+                                        logger.info("No images generated...")
+                                        portrait_step.output = "The magic faded. No portraits were conjured."
+                            portrait_step.name = "🎨 Portraits Conjured"
+                            portrait_step.end = datetime.now(timezone.utc).isoformat()
+                            await portrait_step.update()
 
                     final_state.update(node_state)
 
+            logger.info("Campaign successfully forged!")
             parent_step.name = "🐉 Campaign successfully forged!"
             await parent_step.update()
 
@@ -318,15 +363,45 @@ async def resume_campaign():
 
         chat_history = cl.user_session.get("chat_history", [])
         chat_history.append(AIMessage(content="Campaign generated successfully."))
-        cl.user_session.set("chat_history", chat_history)
+        cl.user_session.set("chat_history", chat_history)     
 
-        await cl.Message(content=formatted_output, elements=images).send()
+        # Update Thread Name in Database
+        title = final_state.get('title', 'A New Campaign')
+        data_layer = cl_data.get_data_layer()
+        current_thread = getattr(cl.context.session, 'thread_id', None)
+        
+        logger.info(f"Thread Rename Diagnostics - Title: '{title}', Thread ID: '{current_thread}', Data Layer Active: {bool(data_layer)}")
+        
+        if data_layer and current_thread:
+            await data_layer.update_thread(thread_id=current_thread, name=title)
+            logger.info("Successfully fired update_thread to data_layer.")
+        else:
+            logger.warning("Failed to update thread name. Data layer or thread ID missing.")
+
+        await cl.Message(content=formatted_output).send()
 
     except Exception as e:
         error_details = traceback.format_exc()
         print(error_details)
         await cl.Message(content=f"**Error resuming campaign:** {str(e)}\n\n```text\n{error_details}\n```").send()
 
+def _save_and_get_markdown_image(b64_str: str, name: str) -> str:
+    """Helper to write image to disk and return a markdown string so Chainlit renders the file path robustly across reloads."""
+    try:
+        current_thread = getattr(cl.context.session, 'thread_id', 'default_campaign')
+        img_bytes = base64.b64decode(b64_str)
+        # Use UUID to prevent browser caching of old images with the same name
+        filename = f"{name.replace(' ', '_')}_{uuid.uuid4().hex[:8]}.jpg"
+        folder_path = os.path.join("public", "campaign_images", current_thread)
+        os.makedirs(folder_path, exist_ok=True)
+        filepath = os.path.join(folder_path, filename)
+        with open(filepath, "wb") as f:
+            f.write(img_bytes)
+        # Static file serving is faster and avoids websocket payload crashes
+        return f"![{name}](/public/campaign_images/{current_thread}/{filename})"
+    except Exception as e:
+        print(f"Failed to save image {name}: {e}")
+        return ""
 
 def format_campaign_output(result: dict) -> str:
     title = result.get('title', 'Epic Adventure')
@@ -345,14 +420,22 @@ def format_campaign_output(result: dict) -> str:
         locations = plan.get('key_locations', []) if isinstance(plan, dict) else getattr(plan, 'key_locations', [])
         factions = plan.get('factions_involved', []) if isinstance(plan, dict) else getattr(plan, 'factions_involved', [])
         villain_statblock = plan.get('villain_statblock') if isinstance(plan, dict) else getattr(plan, 'villain_statblock', None)
+        cover_img_b64 = plan.get('cover_image_base64') if isinstance(plan, dict) else getattr(plan, 'cover_image_base64', None)
+        group_img_b64 = plan.get('group_image_base64') if isinstance(plan, dict) else getattr(plan, 'group_image_base64', None)
+        mac_img_b64 = plan.get('macguffin_image_base64') if isinstance(plan, dict) else getattr(plan, 'macguffin_image_base64', None)
     else:
         villain, conflict, plot_points, locations, factions, villain_statblock = "Unknown", description, [], [], [], None
+        cover_img_b64, group_img_b64, mac_img_b64 = None, None, None
 
     lines = []
-    images = []
     
     # --- 1. CAMPAIGN HEADER ---
-    lines.append(f"# 🐉 {title}")
+    lines.append(f"#🐉 {title}")
+    
+    if cover_img_b64 and cover_img_b64 != "[GENERATED IMAGE STORED]":
+        img_md = _save_and_get_markdown_image(cover_img_b64, "Campaign Cover")
+        if img_md: lines.append(img_md)
+
     lines.append(f"> *\"{description}\"*")
     lines.append("")
     lines.append(f"**🗺️ {terrain.title()}** ｜ **☠️ {difficulty.title()}**")
@@ -365,7 +448,7 @@ def format_campaign_output(result: dict) -> str:
     lines.append("### 📜 Background Lore")
     lines.append(background)
     lines.append("")
-    lines.append("### 😈 Primary Antagonist")
+    lines.append("### 😈 Villain of the story")
     lines.append(f"**{villain}**")
     if villain_statblock:
         vs = villain_statblock
@@ -376,8 +459,11 @@ def format_campaign_output(result: dict) -> str:
         attacks = vs.get('attacks', []) if isinstance(vs, dict) else getattr(vs, 'attacks', [])
         abilities = vs.get('special_abilities', []) if isinstance(vs, dict) else getattr(vs, 'special_abilities', [])
         
-        # Extract villain base64 but do not add it to images yet to preserve order
+        # Extract villain base64
         villain_img_b64 = vs.get('image_base64') if isinstance(vs, dict) else getattr(vs, 'image_base64', None)
+        if villain_img_b64 and villain_img_b64 != "[GENERATED IMAGE STORED]":
+            img_md = _save_and_get_markdown_image(villain_img_b64, villain)
+            if img_md: lines.append(img_md)
         if quote:
             lines.append(f"*\"{quote}\"*")
         if hp and ac:
@@ -415,6 +501,11 @@ def format_campaign_output(result: dict) -> str:
         
     lines.append("### 🏆 Rewards & Hooks")
     lines.append(rewards)
+    
+    if mac_img_b64 and mac_img_b64 != "[GENERATED IMAGE STORED]":
+        img_md = _save_and_get_markdown_image(mac_img_b64, "Legendary Loot")
+        if img_md: lines.append(img_md)
+            
     lines.append("")
     lines.append("---")
     lines.append("")
@@ -422,11 +513,15 @@ def format_campaign_output(result: dict) -> str:
     # --- 2. PARTY AND CHARACTERS ---
     party_data = result.get('party_details')
     party_dict = party_data if isinstance(party_data, dict) else (party_data.model_dump() if party_data else {})
-    party_name = party_dict.get('party_name', 'The Nameless Heroes') if party_dict else 'The Nameless Heroes'
+    party_name = party_dict.get('party_name', 'The Nameless Heroes')
     
     lines.append(f"## ⚔️ {party_name}")
     lines.append("")
     
+    if group_img_b64 and group_img_b64 != "[GENERATED IMAGE STORED]":
+        img_md = _save_and_get_markdown_image(group_img_b64, "The Party")
+        if img_md: lines.append(img_md)
+
     if party_dict and party_dict.get('characters'):
         characters = party_dict.get('characters', [])
         for i, char in enumerate(characters, 1):
@@ -447,11 +542,8 @@ def format_campaign_output(result: dict) -> str:
             # --- Gallery Hero Image ---
             img_b64 = char.get('image_base64')
             if img_b64 and img_b64 != "[GENERATED IMAGE STORED]":
-                try:
-                    img_bytes = base64.b64decode(img_b64)
-                    images.append(cl.Image(name=name, content=img_bytes))
-                except Exception:
-                    pass
+                img_md = _save_and_get_markdown_image(img_b64, name)
+                if img_md: lines.append(img_md)
 
             lines.append(f"**Level {level} {race} {char_class}** • *{alignment}* • **{hp} HP** • **{ac} AC**")
             lines.append(f"> \"{quote}\"")
@@ -470,10 +562,6 @@ def format_campaign_output(result: dict) -> str:
                 lines.append(f"| {stats.get('STR', 10)} | {stats.get('DEX', 10)} | {stats.get('CON', 10)} | {stats.get('INT', 10)} | {stats.get('WIS', 10)} | {stats.get('CHA', 10)} |")
                 lines.append("")
 
-            flaws = char.get('flaws')
-            if flaws:
-                lines.append(f"**Flaws:** {flaws}")
-                
             lines.append("---")
             lines.append("")
             if char.get('backstory_hook'): 
@@ -553,16 +641,7 @@ def format_campaign_output(result: dict) -> str:
             lines.append("---")
             lines.append("")
             
-    # --- Append Villain Image Last for Gallery Order ---
-    if villain_statblock and 'villain_img_b64' in locals():
-        if villain_img_b64 and villain_img_b64 != "[GENERATED IMAGE STORED]":
-            try:
-                img_bytes = base64.b64decode(villain_img_b64)
-                images.append(cl.Image(name=villain, content=img_bytes))
-            except Exception:
-                pass
-
-    return "\n".join(lines), images
+    return "\n".join(lines), []
 
 # --- Chainlit App ---
 @cl.on_chat_start
@@ -609,6 +688,17 @@ Pull up a chair by the hearth! I'm your Assistant *to the* Regional Dungeon Mast
 2. 🗣️ **The Bard's Route:** Just tell me your vision in the chat! ("Make a deadly swamp adventure for 4 players"), or ask me to randomize the rest.
 """
     await cl.Message(content = welcome_msg, actions = actions).send()
+
+@cl.on_chat_resume
+async def on_chat_resume(thread: dict):
+    """Restores the chat input box when viewing historical threads."""
+    cl.user_session.set("thread_id", thread.get("id"))
+    cl.user_session.set("campaign_params", {
+        "party_name": None, "party_size": None, "terrain": None, 
+        "difficulty": None, "requirements": "", "characters": [], "roster_locked": True
+    })
+    cl.user_session.set("chat_history", [])
+    cl.user_session.set("pending_plan", None)
 
 @cl.on_settings_update
 async def setup_campaign_settings(settings:dict):
@@ -696,8 +786,8 @@ async def on_message(message: cl.Message):
     if extracted_data:
         if extracted_data.party_name: state["party_name"] = extracted_data.party_name
         if extracted_data.party_size: state["party_size"] = extracted_data.party_size
-        if extracted_data.terrain: state["terrain"] = _coerce_terrain(extracted_data.terrain)
-        if extracted_data.difficulty: state["difficulty"] = _coerce_difficulty(extracted_data.difficulty)
+        if extracted_data.terrain: state["terrain"] = extracted_data.terrain
+        if extracted_data.difficulty: state["difficulty"] = extracted_data.difficulty
         if extracted_data.new_requirements:
             state["requirements"] = f"{state['requirements']} {extracted_data.new_requirements}".strip()
             
