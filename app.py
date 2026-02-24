@@ -430,7 +430,7 @@ def format_campaign_output(result: dict) -> str:
     lines = []
     
     # --- 1. CAMPAIGN HEADER ---
-    lines.append(f"#🐉 {title}")
+    lines.append(f"# 🐉 {title}")
     
     if cover_img_b64 and cover_img_b64 != "[GENERATED IMAGE STORED]":
         img_md = _save_and_get_markdown_image(cover_img_b64, "Campaign Cover")

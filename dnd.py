@@ -54,7 +54,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Define model (Using Gemini 3.1 Pro or your preferred capable model)
-model = ChatGoogleGenerativeAI(
+research_model = ChatGoogleGenerativeAI(
     model="gemini-2.5-pro",
     temperature=0.2, # Low temperature for planning and extraction
     verbose=False
@@ -87,13 +87,13 @@ class Spell(BaseModel):
     description: str = Field(description="Brief spell effect, including damage/healing or save DC if applicable.")
 
 class VillainStatblock(BaseModel):
-    """Stats and abilities of the primary antagonist."""
+    """Stats and abilities of the primary antagonist. MUST BE HIGHLY CREATIVE AND UNIQUE. Avoid boring generic tropes (like 'evil wizard' or 'bandit king') unless you give them a bizarre, memorable twist!"""
     hp: int = Field(description="Max hit points")
     ac: int = Field(description="Armor Class")
-    flavor_quote: str = Field(description="A menacing, in-character quote from the villain")
-    physical_description: str = Field(description="A vivid, detailed physical description of the villain's appearance. Include height, build, distinctive features, clothing, and any unnatural traits. This will be used for image generation.")
-    attacks: list[str] = Field(description="List of attacks with to-hit and damage (e.g., '+7 to hit | 2d8+4 slashing')")
-    special_abilities: list[str] = Field(default_factory=list, description="Unique villain abilities or legendary actions")
+    flavor_quote: str = Field(description="A memorable, chilling, or eccentric in-character quote from the villain")
+    physical_description: str = Field(description="A vivid, weird, and detailed physical description of the villain's appearance. Include height, build, distinctive features, clothing, and any unnatural traits. This needs to look incredibly cool and distinct for image generation.")
+    attacks: list[str] = Field(description="List of attacks with to-hit and damage (e.g., '+7 to hit | 2d8+4 slashing'). Give the attacks creative names.")
+    special_abilities: list[str] = Field(default_factory=list, description="Unique, terrifying, or bizarre villain abilities and legendary actions")
     image_base64: Optional[str] = Field(default=None, description="A Base64 string of the villain's generated portrait.")
 
 class Character(BaseModel):
@@ -220,17 +220,60 @@ def search_wikipedia(query: str) -> str:
 # --- Nodes ---
 def planner_node(state: CampaignState):
     """Node 1: Establishes the facts and structured outline of the campaign."""
-    sparks = ["ancient ruins", "political intrigue", "planar invasion", "an undead curse", "a feywild connection", "a dragon cult", "abyssal corruption", "a lost magical artifact", "a celestial prophecy", "a dark guild"]
+    sparks = [
+        "ancient ruins", "political intrigue", "planar invasion", "an undead curse", 
+        "a feywild connection", "a dragon cult", "abyssal corruption", "a lost magical artifact", 
+        "a celestial prophecy", "a dark guild", "a forgotten clockwork city", "a heist on a moving train",
+        "a cursed sentient weapon that manipulates its wielder", "a murder mystery at a masquerade ball",
+        "a gladiator tournament run by devils", "an illusionary village that only exists at night",
+        "a massive floating island slowly crashing to the ground", "a patron deity suddenly going silent",
+        "a time loop trapping the party in a deadly dungeon", "a war between two ancient dragon siblings",
+        "a mind flayer colony infiltrating the nobility", "an archfey's twisted tea party",
+        "a haunted pirate galleon emerging from the mist", "a black market auction of stolen memories",
+        "a kraken awakening from a centuries-long slumber", "a cult trying to summon an Eldritch horror",
+        "an invasion of vampiric plants consuming a forest", "a city under siege by an army of stone golems",
+        "a rogue magical experiment causing tears in reality", "a labyrinth built by a mad god to test mortals",
+        "a parasitic plague spreading through the local water supply", "a masquerade where the masks give people dark powers",
+        "a rebellion led by awakened animals", "a legendary forge requiring the breath of an ancient dragon to light",
+        "a prison break from the most secure dungeon in the realm", "a mimic colony disguised as an entire tavern"
+    ]
     spark = random.choice(sparks)
     search_query = f"D&D quest ideas for a {state.difficulty or 'Medium'} campaign in {state.terrain or 'Mixed Terrain'} involving {spark}"
     
-    search_results = "No internet search results."
-    wiki_results = "No Wikipedia results."
+    # Try Agentic Ideation using Native Google Search
+    reference_material = ""
     
-    with suppress(ToolException, ValueError, TypeError):
-        search_results = search_internet.invoke({"query": search_query})
-    with suppress(ToolException, ValueError, TypeError):
-        wiki_results = search_wikipedia.invoke({"query": search_query})
+    try:
+        ideation_prompt = f"""You are an elite D&D Dungeon Master and an autonomous researcher.
+        The user wants a campaign with the following constraints:
+        - Terrain: {state.terrain}
+        - Difficulty: {state.difficulty}
+        - User Requirements: {state.requirements or 'None'}
+        - Initial Spark: {spark}
+        
+        YOUR MISSION:
+        Do not just write an outline off the top of your head. You MUST use your Google Search tool to deeply research ideas for this specific quest.
+        1. Formulate your own search queries to find real D&D lore, monsters, and mechanics that fit the terrain and difficulty.
+        2. Formulate separate queries to find interesting story tropes, puzzles, or plot twists related to the user's requirements.
+        3. Gather all this inspiration, and ONLY THEN synthesize a cohesive, highly detailed D&D quest outline.
+        
+        Show off the unique, internet-grounded ideas you found!
+        """
+        ideation_response = writer_model.invoke(ideation_prompt, tools=[{"google_search": {}}])
+        reference_material = f"Agentic Brainstorming & Research:\n{ideation_response.content}"
+        logging.info(f"Agentic Brainstorming & Research")
+
+    except Exception as e:
+        print(f"⚠️ Native Google Search failed ({e}). Falling back to DuckDuckGo and Wikipedia.")
+        search_results = "No internet search results."
+        wiki_results = "No Wikipedia results."
+        
+        with suppress(ToolException, ValueError, TypeError):
+            search_results = search_internet.invoke({"query": search_query})
+        with suppress(ToolException, ValueError, TypeError):
+            wiki_results = search_wikipedia.invoke({"query": search_query})
+            
+        reference_material = f"Internet Results:\n{search_results}\n\nWikipedia Results:\n{wiki_results}"
 
     # Grab existing plan if it exists
     existing_plan = state.campaign_plan.model_dump_json(indent=2) if state.campaign_plan else "No plan exists yet."
@@ -248,8 +291,7 @@ def planner_node(state: CampaignState):
     {existing_plan}
 
     Reference Material:
-    {search_results}
-    {wiki_results}
+    {reference_material}
 
     Analyze the requirements and create a strict CampaignPlan. Ensure the boss, plot points, and locations make sense together.
 
@@ -260,7 +302,7 @@ def planner_node(state: CampaignState):
     4. THE COPY-PASTE MANDATE: For every field NOT requested to change, copy the content EXACTLY from the Existing Plan. Do not paraphrase or "improve" it.
     5. COLD START: If no Existing Plan is provided, create a brand new CampaignPlan from scratch.
     """
-    structured_llm = model.with_structured_output(CampaignPlan)
+    structured_llm = research_model.with_structured_output(CampaignPlan)
     plan = structured_llm.invoke(prompt)
     
     return {"campaign_plan": plan}
@@ -290,7 +332,7 @@ async def party_creation_node(state: CampaignState):
             mcp_tools = tools
 
     # Bind the MCP tools to our model outside the SSE context!
-    model_with_tools = model.bind_tools(mcp_tools) if mcp_tools else model
+    model_with_tools = research_model.bind_tools(mcp_tools) if mcp_tools else research_model
 
     system_prompt = f"""You are a master D&D Party Architect and Rules Expert.
     Campaign World Context: {plan_context}
@@ -331,7 +373,7 @@ async def party_creation_node(state: CampaignState):
     try:
         if just_finished_tools:
             # Force Pydantic output!
-            structured_llm = model.with_structured_output(PartyDetails)
+            structured_llm = research_model.with_structured_output(PartyDetails)
             final_party = await structured_llm.ainvoke(messages)
             
             # Standard cleanup
@@ -411,6 +453,7 @@ async def generate_image_base64_multimodal(prompt: str, images_b64: list[str]) -
                 
         config = types.GenerateContentConfig(
             response_modalities = ['TEXT', 'IMAGE'],
+            temperature = 1,
             image_config = types.ImageConfig(
                 aspect_ratio = "16:9",
             ),
@@ -613,7 +656,7 @@ def determine_next_steps(state: CampaignState, current_node: str):
         - "NO" if they only want character changes
         """
 
-        wants_story = "YES" in model.invoke(prompt).content.upper()
+        wants_story = "YES" in research_model.invoke(prompt).content.upper()
         return "CharacterPortraitNode" if wants_story else END # If story changes, go to portraits, otherwise end.
 
     elif current_node == "CharacterPortraitNode":
@@ -630,7 +673,7 @@ def determine_next_steps(state: CampaignState, current_node: str):
             - "YES" if they explicitly asked for story/plot/narrative/title changes
             - "NO" if they only want character changes (which are already handled by portraits)
             """
-            wants_story = "YES" in model.invoke(prompt).content.upper()
+            wants_story = "YES" in research_model.invoke(prompt).content.upper()
             return "NarrativeWriterNode" if wants_story else END
         else:
             return "NarrativeWriterNode" # First run, always go to narrative after portraits
