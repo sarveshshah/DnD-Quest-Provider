@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import ReactMarkdown from "react-markdown";
 
 interface CharacterProps {
     char: {
@@ -139,7 +140,7 @@ export default function CharacterSheet({ char }: CharacterProps) {
                 {/* Right Column: Character Details Container */}
                 <div className="flex-1 p-8 md:p-10 overflow-y-auto custom-scrollbar relative z-10">
 
-                    <h3 className="text-2xl font-black text-slate-900 dark:text-white mb-6">Character Overview</h3>
+                    {/* <h3 className="text-2xl font-black text-slate-900 dark:text-white mb-6">Character Overview</h3> */}
 
                     {/* Info Card Header */}
                     <div className="mb-8">
@@ -173,9 +174,9 @@ export default function CharacterSheet({ char }: CharacterProps) {
                         <div className="grid grid-cols-3 gap-3 md:gap-4 mb-10">
                             {Object.entries(char.ability_scores).map(([stat, score]) => (
                                 <div key={stat} className="bg-violet-50/50 dark:bg-violet-900/5 border border-violet-100 dark:border-violet-900/20 rounded-2xl p-4 text-center">
-                                    <div className="text-[10px] font-black text-violet-600 dark:text-violet-400 uppercase tracking-widest mb-1">{stat}</div>
-                                    <div className="text-3xl font-black text-slate-900 dark:text-white leading-none">{score}</div>
-                                    <div className="text-xs font-bold text-slate-400 dark:text-slate-500 mt-1">{getMod(score as number)}</div>
+                                    <div className="text-[14px] font-black text-violet-600 dark:text-violet-400 uppercase tracking-widest mb-1">{stat}</div>
+                                    <div className="text-2xl font-black text-slate-900 dark:text-white leading-none">{score}</div>
+                                    <div className="text-s font-bold text-slate-400 dark:text-slate-500 mt-1">{getMod(score as number)}</div>
                                 </div>
                             ))}
                         </div>
@@ -220,6 +221,20 @@ export default function CharacterSheet({ char }: CharacterProps) {
                                     Active (8h)
                                 </div>
                             </div>
+
+                            {/* Appearance */}
+                            {char.physical_description && (
+                                <div className="border-t border-slate-200 dark:border-slate-800 pt-6">
+                                    <div className="flex items-center gap-2 mb-3">
+                                        <span className="material-symbols-outlined text-violet-500 !text-lg">visibility</span>
+                                        <h3 className="text-xs font-black tracking-widest text-slate-900 dark:text-white uppercase">Appearance</h3>
+                                    </div>
+                                    <div className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed prose prose-sm prose-slate dark:prose-invert max-w-none">
+                                        <ReactMarkdown>{char.physical_description}</ReactMarkdown>
+                                    </div>
+                                </div>
+                            )}
+
                         </div>
                     </div>
 
