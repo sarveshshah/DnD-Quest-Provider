@@ -299,17 +299,36 @@ export default function Home() {
       />
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col items-center py-24 px-4 w-full transition-all">
-        <h1 className="text-4xl md:text-5xl font-extrabold mb-12 text-slate-900 dark:text-white tracking-tight text-center">
-          D&D Quest Generator
-        </h1>
+      <div className={`flex-1 flex flex-col items-center px-4 w-full transition-all ${(status || narrative || campaignPlan || partyDetails || hitlData)
+        ? 'pt-24 pb-32'
+        : 'justify-center min-h-screen'
+        }`}>
 
-        {/* Generate Form */}
-        <form onSubmit={handleSubmit} className="w-full max-w-6xl flex flex-col gap-6 mb-16">
+        {/* Landing title — only when no output */}
+        {!(status || narrative || campaignPlan || partyDetails || hitlData) && (
+          <div className="flex flex-col items-center mb-12">
+            <img src="/favicon.png" alt="D&D Quest Generator" className="w-20 h-20 mb-2 object-contain drop-shadow-lg" />
+            <h1 className="text-4xl md:text-5xl font-extrabold text-slate-900 dark:text-white tracking-tight text-center">
+              D&D Quest Generator
+            </h1>
+          </div>
+        )}
+
+        {/* Generate Form — centered on landing, floating bar when output exists */}
+        <form
+          onSubmit={handleSubmit}
+          className={`w-full flex flex-col gap-6 transition-all duration-500 ${(status || narrative || campaignPlan || partyDetails || hitlData)
+            ? 'fixed bottom-0 left-0 right-0 z-50 px-4 pb-4 pt-2 max-w-3xl mx-auto'
+            : 'max-w-6xl mb-16'
+            }`}
+        >
 
           {/* 1. Primary Prompt Input */}
-          <div className="bg-white dark:bg-zinc-900/80 p-2.5 rounded-2xl border border-slate-200 dark:border-zinc-800 shadow-lg dark:shadow-[0_4px_30px_rgba(0,0,0,0.4)] flex items-center focus-within:ring-2 focus-within:ring-rose-500/50 focus-within:border-rose-500/50 transition-all">
-            <span className="text-3xl ml-4">🐉</span>
+          <div className={`bg-white dark:bg-zinc-900/80 p-2.5 rounded-2xl border border-slate-200 dark:border-zinc-800 flex items-center focus-within:ring-2 focus-within:ring-rose-500/50 focus-within:border-rose-500/50 transition-all ${(status || narrative || campaignPlan || partyDetails || hitlData)
+            ? 'shadow-[0_-4px_30px_rgba(0,0,0,0.12)] dark:shadow-[0_-4px_30px_rgba(0,0,0,0.5)] backdrop-blur-xl bg-white/95 dark:bg-zinc-900/95'
+            : 'shadow-lg dark:shadow-[0_4px_30px_rgba(0,0,0,0.4)]'
+            }`}>
+            <img src="/favicon.png" alt="" className="w-8 h-8 ml-4 object-contain" />
             <input
               type="text"
               value={prompt}
