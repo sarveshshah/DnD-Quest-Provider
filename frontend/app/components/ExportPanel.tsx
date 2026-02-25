@@ -101,18 +101,18 @@ export default function ExportPanel({ campaignPlan, partyDetails, narrative }: E
     if (!campaignPlan && !partyDetails && !narrative) return null;
 
     return (
-        <div className="flex gap-4 p-4 bg-zinc-900 border border-zinc-800 rounded-xl justify-center mt-8 print:hidden">
-            <h3 className="text-zinc-400 font-bold self-center mr-4">Take It To The Table:</h3>
+        <div className="flex gap-4 p-4 bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl justify-center mt-8 print:hidden">
+            <h3 className="text-slate-500 dark:text-zinc-400 font-bold self-center mr-4">Take It To The Table:</h3>
             <button
                 onClick={handleExportMarkdown}
-                className="flex items-center gap-2 bg-red-900/40 hover:bg-red-800 text-red-400 font-bold py-2 px-6 rounded-lg border border-red-800/50 transition-colors"
+                className="flex items-center gap-2 bg-rose-50 dark:bg-red-900/40 hover:bg-rose-100 dark:hover:bg-red-800 text-rose-600 dark:text-red-400 font-bold py-2 px-6 rounded-lg border border-rose-200 dark:border-red-800/50 transition-colors"
             >
                 <span>💾</span> Download Markdown
             </button>
 
             <button
                 onClick={handlePrint}
-                className="flex items-center gap-2 bg-sky-900/40 hover:bg-sky-800 text-sky-400 font-bold py-2 px-6 rounded-lg border border-sky-800/50 transition-colors"
+                className="flex items-center gap-2 bg-sky-50 dark:bg-sky-900/40 hover:bg-sky-100 dark:hover:bg-sky-800 text-sky-600 dark:text-sky-400 font-bold py-2 px-6 rounded-lg border border-sky-200 dark:border-sky-800/50 transition-colors"
             >
                 <span>🖨️</span> Print to PDF
             </button>

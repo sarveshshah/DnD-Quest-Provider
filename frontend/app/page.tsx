@@ -259,13 +259,25 @@ export default function Home() {
     <div className="flex min-h-screen">
       <ThemeToggle />
 
-      {/* Mobile/Collapsible Header with Hamburger */}
-      <button
-        onClick={() => setIsSidebarOpen(true)}
-        className="fixed top-6 left-6 z-40 p-3 rounded-full bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 shadow-md text-slate-700 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-700 transition-colors"
-      >
-        <span className="material-symbols-outlined !text-xl flex items-center justify-center">menu</span>
-      </button>
+      {/* Fixed left-side icon buttons: New Campaign + Hamburger stacked */}
+      <div className="fixed top-6 left-6 z-40 flex flex-col gap-2">
+        {/* New Campaign icon */}
+        <button
+          onClick={() => handleSelectThread("")}
+          title="New Campaign"
+          className="p-3 rounded-full bg-rose-600 hover:bg-rose-500 border border-rose-700 shadow-md text-white transition-colors"
+        >
+          <span className="material-symbols-outlined !text-xl flex items-center justify-center">add</span>
+        </button>
+        {/* Hamburger / Sidebar toggle */}
+        <button
+          onClick={() => setIsSidebarOpen(true)}
+          title="Campaign History"
+          className="p-3 rounded-full bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 shadow-md text-slate-700 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-700 transition-colors"
+        >
+          <span className="material-symbols-outlined !text-xl flex items-center justify-center">menu</span>
+        </button>
+      </div>
 
       {/* Sidebar Overlay and Component */}
       <Sidebar
@@ -296,9 +308,8 @@ export default function Home() {
               placeholder="What kind of adventure are you looking for? (e.g. A mystery involving a mimic tavern...)"
               className="flex-1 bg-transparent px-4 py-4 text-lg focus:outline-none text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-zinc-500"
             />
-            <button type="submit" disabled={isLoadingHistory} className="bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white px-8 py-4 rounded-xl font-bold transition-all shadow-md shadow-rose-600/20 mr-1 flex items-center gap-2">
-              <span>Generate</span>
-              <span className="material-symbols-outlined !text-lg">auto_awesome</span>
+            <button type="submit" disabled={isLoadingHistory} title="Generate Campaign" className="bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white p-4 rounded-xl transition-all shadow-md shadow-rose-600/20 mr-1 flex items-center justify-center">
+              <span className="material-symbols-outlined !text-xl">auto_awesome</span>
             </button>
           </div>
 
@@ -392,9 +403,9 @@ export default function Home() {
           <div className="w-full max-w-4xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-3xl p-6 md:p-10 shadow-xl dark:shadow-[0_8px_30px_rgba(0,0,0,0.5)] min-h-[400px]">
             {/* Status Tracker */}
             {status && status !== "Generation Complete!" && (
-              <div className="text-rose-500 font-mono text-sm mb-8 pb-8 border-b border-slate-100 dark:border-zinc-800 flex justify-center items-center gap-3">
-                <span className="material-symbols-outlined animate-spin-slow">hourglass_top</span>
-                <span className="font-bold tracking-wide">{status}</span>
+              <div className="text-slate-400 dark:text-zinc-500 text-xs mb-6 pb-6 border-b border-slate-100 dark:border-zinc-800 flex items-center gap-2">
+                <span className="material-symbols-outlined animate-spin-slow !text-sm">hourglass_top</span>
+                <span>{status}</span>
               </div>
             )}
 
