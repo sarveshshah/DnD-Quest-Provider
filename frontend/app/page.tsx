@@ -16,6 +16,7 @@ export default function Home() {
   const [partyDetails, setPartyDetails] = useState<any>(null);
   const [narrative, setNarrative] = useState<any>(null);
   const [threadId, setThreadId] = useState<string | null>(null);
+  const [charIndex, setCharIndex] = useState(0);
   const [hitlData, setHitlData] = useState<any>(null);
   const [difficulty, setDifficulty] = useState("Medium");
   const [terrain, setTerrain] = useState("Forest");
@@ -443,11 +444,54 @@ export default function Home() {
                     <span className="material-symbols-outlined !text-3xl">group</span>
                     {partyDetails.party_name || "The Heroes"}
                   </h2>
-                  <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
-                    {partyDetails.characters.map((char: any, i: number) => (
-                      <CharacterSheet key={i} char={char} />
-                    ))}
-                  </div>
+                  {/* Character Carousel */}
+                  {(() => {
+                    const chars = partyDetails.characters;
+                    const total = chars.length;
+                    const idx = Math.min(charIndex, total - 1);
+                    const prev = () => setCharIndex(i => (i - 1 + total) % total);
+                    const next = () => setCharIndex(i => (i + 1) % total);
+                    return (
+                      <div className="relative">
+                        {/* Navigation arrows */}
+                        {total > 1 && (
+                          <>
+                            <button
+                              onClick={prev}
+                              className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-5 z-10 bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 shadow-md rounded-full p-2 text-slate-600 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-700 transition-all"
+                            >
+                              <span className="material-symbols-outlined !text-xl">chevron_left</span>
+                            </button>
+                            <button
+                              onClick={next}
+                              className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-5 z-10 bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 shadow-md rounded-full p-2 text-slate-600 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-700 transition-all"
+                            >
+                              <span className="material-symbols-outlined !text-xl">chevron_right</span>
+                            </button>
+                          </>
+                        )}
+
+                        {/* Active character */}
+                        <CharacterSheet key={idx} char={chars[idx]} />
+
+                        {/* Dot indicators */}
+                        {total > 1 && (
+                          <div className="flex justify-center gap-2 mt-6">
+                            {chars.map((_: any, i: number) => (
+                              <button
+                                key={i}
+                                onClick={() => setCharIndex(i)}
+                                className={`rounded-full transition-all ${i === idx
+                                  ? 'w-6 h-2 bg-rose-500'
+                                  : 'w-2 h-2 bg-slate-300 dark:bg-zinc-600 hover:bg-rose-300'
+                                  }`}
+                              />
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
               ) : campaignPlan?.suggested_party ? (
                 <div>
