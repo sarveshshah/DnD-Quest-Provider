@@ -185,42 +185,51 @@ export default function CampaignLore({ narrative, campaignPlan, terrain = "Fores
                         </div>
                     )}
 
-                    {/* Rewards + Macguffin Image */}
+                    {/* Rewards + Macguffin — Card layout matching party card */}
                     {(narrative?.rewards || (campaignPlan?.macguffin_image_base64 && campaignPlan.macguffin_image_base64 !== '[GENERATED IMAGE STORED]')) && (
-                        <section className="bg-slate-50 p-8 rounded-2xl border border-slate-200">
-                            <div className="flex items-center gap-3 mb-6">
-                                <span className="material-symbols-outlined text-[#7311d4] text-2xl">redeem</span>
-                                <h3 className="font-extrabold text-slate-900 text-lg">Rewards & Hooks</h3>
-                            </div>
-                            <div className="flex flex-col lg:flex-row gap-8 items-start">
+                        <div className="bg-white border border-slate-200 rounded-3xl overflow-hidden flex flex-col md:flex-row shadow-[0_8px_30px_rgb(0,0,0,0.06)]">
+
+                            {/* Left: Rewards text */}
+                            <div className="flex-1 p-8 md:p-10 flex flex-col justify-center gap-4">
+                                <div className="flex items-center gap-2 mb-2">
+                                    <span className="material-symbols-outlined text-[#7311d4] text-xl">redeem</span>
+                                    <h3 className="font-extrabold text-slate-900 text-lg">Rewards & Hooks</h3>
+                                </div>
                                 {narrative?.rewards && (
-                                    <div className="flex-1 text-slate-700 text-base prose prose-slate max-w-none">
+                                    <div className="text-slate-700 text-base prose prose-slate max-w-none">
                                         <ReactMarkdown>{narrative.rewards}</ReactMarkdown>
                                     </div>
                                 )}
-                                {campaignPlan?.macguffin_image_base64 && campaignPlan.macguffin_image_base64 !== '[GENERATED IMAGE STORED]' && (
-                                    <div
-                                        className="flex-shrink-0 lg:w-72 cursor-zoom-in group/mac"
-                                        onClick={() => { setMacguffinLightbox(true); document.body.style.overflow = 'hidden'; }}
-                                    >
-                                        <div className="relative">
-                                            <img
-                                                src={`data:image/jpeg;base64,${campaignPlan.macguffin_image_base64}`}
-                                                alt="The Treasure"
-                                                className="w-full rounded-xl shadow-md object-cover group-hover/mac:scale-[1.02] transition-transform duration-500"
-                                                style={{ maxHeight: '260px' }}
-                                            />
-                                            <div className="absolute top-2 right-2 opacity-0 group-hover/mac:opacity-100 transition-opacity bg-black/50 rounded-full p-1">
-                                                <span className="material-symbols-outlined !text-[16px] text-white">zoom_in</span>
-                                            </div>
-                                        </div>
-                                        {campaignPlan?.loot_concept && (
-                                            <p className="text-xs text-slate-400 text-center mt-2 italic">{campaignPlan.loot_concept}</p>
-                                        )}
-                                    </div>
-                                )}
                             </div>
-                        </section>
+
+                            {/* Right: Tall treasure image panel */}
+                            {campaignPlan?.macguffin_image_base64 && campaignPlan.macguffin_image_base64 !== '[GENERATED IMAGE STORED]' && (
+                                <div
+                                    className="relative w-full md:w-[45%] flex-shrink-0 bg-slate-900 overflow-hidden cursor-zoom-in group/mac"
+                                    style={{ minHeight: '360px' }}
+                                    onClick={() => { setMacguffinLightbox(true); document.body.style.overflow = 'hidden'; }}
+                                >
+                                    <img
+                                        src={`data:image/jpeg;base64,${campaignPlan.macguffin_image_base64}`}
+                                        alt="The Treasure"
+                                        className="absolute inset-0 w-full h-full object-cover object-center group-hover/mac:scale-105 transition-transform duration-700"
+                                    />
+                                    {/* Left-fade removed — replaced with stronger bottom gradient */}
+                                    {/* Bottom gradient for text */}
+                                    <div className="absolute inset-x-0 bottom-0 h-56 bg-gradient-to-t from-black/95 via-black/60 to-transparent pointer-events-none" />
+                                    <div className="absolute bottom-6 left-6 md:bottom-8 md:left-8 z-10 pointer-events-none w-[85%]">
+                                        <p className="text-[9px] uppercase tracking-[0.2em] font-black text-violet-300 mb-1" style={{ textShadow: '0 2px 8px rgba(0,0,0,1)' }}>The Loot</p>
+                                        <p className="text-sm md:text-base font-bold text-white leading-snug" style={{ textShadow: '0 2px 8px rgba(0,0,0,1)' }}>
+                                            {campaignPlan.loot_concept || "Legendary Treasure"}
+                                        </p>
+                                    </div>
+                                    {/* Zoom hint */}
+                                    <div className="absolute top-3 right-3 opacity-0 group-hover/mac:opacity-100 transition-opacity bg-black/50 rounded-full p-1.5 z-10">
+                                        <span className="material-symbols-outlined !text-[18px] text-white">zoom_in</span>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
                     )}
 
                 </div>

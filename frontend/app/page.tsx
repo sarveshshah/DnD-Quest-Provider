@@ -18,6 +18,13 @@ export default function Home() {
   const [threadId, setThreadId] = useState<string | null>(null);
   const [charIndex, setCharIndex] = useState(0);
   const [groupLightbox, setGroupLightbox] = useState(false);
+
+  // Filter out generic AI-generated party names that aren't meaningful
+  const resolvedPartyName = (() => {
+    const n = partyDetails?.party_name || "";
+    const generic = ["suggested adventurers", "the suggested adventurers", "the heroes", "adventurers", "party"];
+    return generic.includes(n.toLowerCase().trim()) ? null : n || null;
+  })();
   const [hitlData, setHitlData] = useState<any>(null);
   const [difficulty, setDifficulty] = useState("Medium");
   const [terrain, setTerrain] = useState("Forest");
@@ -464,7 +471,7 @@ export default function Home() {
                     <div className="flex-1 p-8 md:p-10 flex flex-col justify-center gap-4">
                       <div className="text-[10px] uppercase tracking-[0.2em] font-black text-violet-500">Adventuring Party</div>
                       <h2 className="text-3xl md:text-4xl font-black text-slate-900 dark:text-white tracking-tight leading-tight">
-                        {partyDetails?.party_name || campaignPlan?.party_name || "The Heroes"}
+                        {resolvedPartyName || partyName || "The Heroes"}
                       </h2>
                       <div className="flex flex-wrap gap-2 mt-1">
                         {terrain && (
@@ -496,15 +503,12 @@ export default function Home() {
                         alt="The Party"
                         className="absolute inset-0 w-full h-full object-cover object-center group-hover/party:scale-105 transition-transform duration-700"
                       />
-                      {/* Left-fade gradient (blends into info column on desktop) */}
-                      <div className="absolute inset-y-0 left-0 w-24 bg-gradient-to-l from-transparent to-white dark:to-slate-900 hidden md:block pointer-events-none" />
                       {/* Bottom gradient for text readability */}
-                      <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-black/80 via-black/40 to-transparent pointer-events-none" />
-                      {/* Text overlay */}
-                      <div className="absolute bottom-6 left-6 md:bottom-8 md:left-8 z-10 pointer-events-none">
-                        <p className="text-[10px] uppercase tracking-[0.2em] font-black text-violet-300 mb-1">Group Portrait</p>
-                        <h3 className="text-2xl md:text-3xl font-black text-white drop-shadow-md leading-tight">
-                          {partyDetails?.party_name || "The Heroes"}
+                      <div className="absolute inset-x-0 bottom-0 h-56 bg-gradient-to-t from-black/95 via-black/60 to-transparent pointer-events-none" />
+                      <div className="absolute bottom-6 left-6 md:bottom-8 md:left-8 z-10 pointer-events-none w-[85%]">
+                        <p className="text-[10px] uppercase tracking-[0.2em] font-black text-violet-300 mb-1" style={{ textShadow: '0 2px 8px rgba(0,0,0,1)' }}>Group Portrait</p>
+                        <h3 className="text-2xl md:text-3xl font-black text-white leading-snug" style={{ textShadow: '0 2px 8px rgba(0,0,0,1)' }}>
+                          {resolvedPartyName || partyName || "The Heroes"}
                         </h3>
                       </div>
                       {/* Zoom hint */}
@@ -521,7 +525,7 @@ export default function Home() {
                 <div>
                   <h2 className="text-2xl font-extrabold text-rose-500 mb-6 border-b border-slate-200 dark:border-zinc-800 pb-4 flex items-center gap-3">
                     <span className="material-symbols-outlined !text-3xl">group</span>
-                    {partyDetails.party_name || campaignPlan?.party_name || "The Heroes"}
+                    {resolvedPartyName || partyName || "The Heroes"}
                   </h2>
                   {/* Character Carousel */}
                   {(() => {
@@ -576,7 +580,7 @@ export default function Home() {
                 <div>
                   <h2 className="text-2xl font-extrabold text-rose-500 mb-6 border-b border-slate-200 dark:border-zinc-800 pb-4 flex items-center gap-3">
                     <span className="material-symbols-outlined !text-3xl">lightbulb</span>
-                    {campaignPlan?.party_name || partyDetails?.party_name || "Suggested Heroes"}
+                    {resolvedPartyName || partyName || "The Heroes"}
                   </h2>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                     {campaignPlan.suggested_party.map((hero: any, i: number) => (
