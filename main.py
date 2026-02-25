@@ -256,7 +256,7 @@ async def generate_quest(req: GenerateRequest):
                                 "event": "plan",
                                 "data": plan.model_dump_json() if hasattr(plan, 'model_dump_json') else json.dumps(plan)
                             }
-                        elif kind == "on_chain_end" and "party_details" in event["data"].get("output", {}):
+                        if kind == "on_chain_end" and "party_details" in event["data"].get("output", {}):
                             party = event["data"]["output"]["party_details"]
                             yield {
                                 "event": "party",
