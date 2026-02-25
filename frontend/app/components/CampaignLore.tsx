@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 
 interface CampaignLoreProps {
@@ -10,10 +11,27 @@ interface CampaignLoreProps {
 export default function CampaignLore({ narrative, campaignPlan, terrain = "Forest", difficulty = "Medium" }: CampaignLoreProps) {
     if (!narrative && !campaignPlan) return null;
 
+    const [macguffinLightbox, setMacguffinLightbox] = useState(false);
+
     return (
         <div className="w-full flex justify-center py-8">
+            {/* Macguffin lightbox */}
+            {macguffinLightbox && campaignPlan?.macguffin_image_base64 && campaignPlan.macguffin_image_base64 !== '[GENERATED IMAGE STORED]' && (
+                <div
+                    className="fixed left-0 top-0 w-screen z-[9999] bg-black/90 flex items-center justify-center p-4 backdrop-blur-sm cursor-zoom-out"
+                    style={{ height: '100dvh' }}
+                    onClick={() => { setMacguffinLightbox(false); document.body.style.overflow = ''; }}
+                >
+                    <img
+                        src={`data:image/jpeg;base64,${campaignPlan.macguffin_image_base64}`}
+                        alt="The Treasure"
+                        className="max-h-[90vh] max-w-[90vw] object-contain rounded-2xl shadow-2xl"
+                        onClick={(e) => e.stopPropagation()}
+                    />
+                </div>
+            )}
             {/* Force light mode styles by avoiding dark: classes entirely */}
-            <div className="max-w-4xl w-full bg-white text-slate-900 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.5)] border border-slate-200 rounded-2xl overflow-hidden">
+            <div className="w-full bg-white text-slate-900 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.5)] border border-slate-200 rounded-2xl overflow-hidden">
 
                 {/* Header Section with Dynamic Image Background */}
                 <div
@@ -76,92 +94,88 @@ export default function CampaignLore({ narrative, campaignPlan, terrain = "Fores
                 {/* Content Section */}
                 <div className="p-8 md:p-12 space-y-16">
 
-                    {/* Background Lore */}
-                    {narrative?.background && (
-                        <section>
-                            <div className="flex items-center gap-4 mb-8">
-                                <span className="text-[#7311d4] font-bold text-sm uppercase tracking-[0.25em]">01. Background Lore</span>
-                                <div className="h-px flex-1 bg-slate-200"></div>
-                            </div>
-                            <div className="text-xl leading-relaxed text-slate-800 space-y-6">
-                                <div className="prose prose-lg prose-slate max-w-none">
+                    {/* Two-column body: Background | Conflict + Plot */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
+
+                        {/* Left: Background Lore */}
+                        {narrative?.background && (
+                            <section>
+                                <div className="flex items-center gap-4 mb-6">
+                                    <span className="text-[#7311d4] font-bold text-sm uppercase tracking-[0.25em]">01. Background Lore</span>
+                                    <div className="h-px flex-1 bg-slate-200"></div>
+                                </div>
+                                <div className="prose prose-slate max-w-none text-base leading-relaxed text-slate-800">
                                     <ReactMarkdown>{narrative.background}</ReactMarkdown>
                                 </div>
-                            </div>
-                        </section>
-                    )}
+                            </section>
+                        )}
 
-                    {/* Core Conflict */}
-                    {campaignPlan?.core_conflict && (
-                        <section>
-                            <div className="flex items-center gap-4 mb-8">
-                                <span className="text-[#7311d4] font-bold text-sm uppercase tracking-[0.25em]">{narrative ? "02." : "01."} Core Conflict</span>
-                                <div className="h-px flex-1 bg-slate-200"></div>
-                            </div>
-                            <div className="text-2xl leading-relaxed text-slate-800 font-medium">
-                                <p>{campaignPlan.core_conflict}</p>
-                            </div>
-                        </section>
-                    )}
+                        {/* Right: Core Conflict + Plot Outline */}
+                        <div className="space-y-10">
+                            {campaignPlan?.core_conflict && (
+                                <section>
+                                    <div className="flex items-center gap-4 mb-6">
+                                        <span className="text-[#7311d4] font-bold text-sm uppercase tracking-[0.25em]">{narrative ? "02." : "01."} Core Conflict</span>
+                                        <div className="h-px flex-1 bg-slate-200"></div>
+                                    </div>
+                                    <p className="text-lg leading-relaxed text-slate-800 font-medium">{campaignPlan.core_conflict}</p>
+                                </section>
+                            )}
 
-                    {/* Plot Outline */}
-                    {campaignPlan?.plot_points && campaignPlan.plot_points.length > 0 && (
-                        <section>
-                            <div className="flex items-center gap-4 mb-8">
-                                <span className="text-[#7311d4] font-bold text-sm uppercase tracking-[0.25em]">{narrative ? "03." : "02."} Plot Outline</span>
-                                <div className="h-px flex-1 bg-slate-200"></div>
-                            </div>
-                            <ol className="space-y-8">
-                                {campaignPlan.plot_points.map((point: string, idx: number) => (
-                                    <li key={idx} className="flex gap-6 group">
-                                        <span className="flex-none text-4xl font-black text-[#7311d4]/20 group-hover:text-[#7311d4] transition-colors">
-                                            {String(idx + 1).padStart(2, '0')}
-                                        </span>
-                                        <div className="pt-2">
-                                            <p className="text-slate-700 text-lg leading-relaxed font-sans">{point}</p>
-                                        </div>
-                                    </li>
-                                ))}
-                            </ol>
-                        </section>
-                    )}
+                            {campaignPlan?.plot_points && campaignPlan.plot_points.length > 0 && (
+                                <section>
+                                    <div className="flex items-center gap-4 mb-6">
+                                        <span className="text-[#7311d4] font-bold text-sm uppercase tracking-[0.25em]">{narrative ? "03." : "02."} Plot Outline</span>
+                                        <div className="h-px flex-1 bg-slate-200"></div>
+                                    </div>
+                                    <ol className="space-y-5">
+                                        {campaignPlan.plot_points.map((point: string, idx: number) => (
+                                            <li key={idx} className="flex gap-4 group">
+                                                <span className="flex-none text-2xl font-black text-[#7311d4]/20 group-hover:text-[#7311d4] transition-colors">
+                                                    {String(idx + 1).padStart(2, '0')}
+                                                </span>
+                                                <p className="text-slate-700 text-base leading-relaxed pt-1">{point}</p>
+                                            </li>
+                                        ))}
+                                    </ol>
+                                </section>
+                            )}
+                        </div>
+                    </div>
 
-                    {/* Grid Layout for Factions and Locations */}
+                    {/* Full-width: Factions + Locations */}
                     {(campaignPlan?.factions_involved || campaignPlan?.key_locations) && (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-16">
-                            {/* Factions */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-12 pt-4 border-t border-slate-100">
                             {campaignPlan?.factions_involved && (
                                 <section>
-                                    <div className="flex items-center gap-3 mb-8">
+                                    <div className="flex items-center gap-3 mb-6">
                                         <span className="text-[#7311d4] font-bold text-sm uppercase tracking-[0.25em]">Factions Involved</span>
                                     </div>
-                                    <ul className="space-y-6">
+                                    <ul className="space-y-5">
                                         {campaignPlan.factions_involved.map((faction: string, idx: number) => (
-                                            <li key={idx} className="flex items-start gap-4">
-                                                <span className="material-symbols-outlined text-[#7311d4] mt-1 text-2xl">shield</span>
+                                            <li key={idx} className="flex items-start gap-3">
+                                                <span className="material-symbols-outlined text-[#7311d4] mt-0.5 !text-xl">shield</span>
                                                 <div>
-                                                    <span className="block font-extrabold text-slate-900 text-lg">{faction.split(":")[0] || faction}</span>
-                                                    <span className="text-base text-slate-600 mt-1 block leading-relaxed">{faction.split(":").slice(1).join(":") || "A powerful local organization."}</span>
+                                                    <span className="block font-extrabold text-slate-900">{faction.split(":")[0] || faction}</span>
+                                                    <span className="text-sm text-slate-500 mt-0.5 block leading-relaxed">{faction.split(":").slice(1).join(":") || "A powerful local organization."}</span>
                                                 </div>
                                             </li>
                                         ))}
                                     </ul>
                                 </section>
                             )}
-
-                            {/* Locations */}
                             {campaignPlan?.key_locations && (
                                 <section>
-                                    <div className="flex items-center gap-3 mb-8">
+                                    <div className="flex items-center gap-3 mb-6">
                                         <span className="text-[#7311d4] font-bold text-sm uppercase tracking-[0.25em]">Key Locations</span>
                                     </div>
-                                    <ul className="space-y-6">
+                                    <ul className="space-y-5">
                                         {campaignPlan.key_locations.map((loc: string, idx: number) => (
-                                            <li key={idx} className="flex items-start gap-4">
-                                                <span className="material-symbols-outlined text-[#7311d4] mt-1 text-2xl">location_on</span>
+                                            <li key={idx} className="flex items-start gap-3">
+                                                <span className="material-symbols-outlined text-[#7311d4] mt-0.5 !text-xl">location_on</span>
                                                 <div>
-                                                    <span className="block font-extrabold text-slate-900 text-lg">{loc.split(":")[0] || loc}</span>
-                                                    <span className="text-base text-slate-600 mt-1 block leading-relaxed">{loc.split(":").slice(1).join(":") || "A critical location in the upcoming quest."}</span>
+                                                    <span className="block font-extrabold text-slate-900">{loc.split(":")[0] || loc}</span>
+                                                    <span className="text-sm text-slate-500 mt-0.5 block leading-relaxed">{loc.split(":").slice(1).join(":") || "A critical location in the upcoming quest."}</span>
                                                 </div>
                                             </li>
                                         ))}
@@ -171,20 +185,40 @@ export default function CampaignLore({ narrative, campaignPlan, terrain = "Fores
                         </div>
                     )}
 
-                    {/* Rewards */}
-                    {narrative?.rewards && (
-                        <section className="bg-slate-50 p-10 rounded-2xl border border-slate-200">
-                            <div className="flex items-center gap-3 mb-8">
-                                <span className="material-symbols-outlined text-[#7311d4] text-3xl">redeem</span>
-                                <h3 className="font-extrabold text-slate-900 text-xl">Rewards & Hooks</h3>
+                    {/* Rewards + Macguffin Image */}
+                    {(narrative?.rewards || (campaignPlan?.macguffin_image_base64 && campaignPlan.macguffin_image_base64 !== '[GENERATED IMAGE STORED]')) && (
+                        <section className="bg-slate-50 p-8 rounded-2xl border border-slate-200">
+                            <div className="flex items-center gap-3 mb-6">
+                                <span className="material-symbols-outlined text-[#7311d4] text-2xl">redeem</span>
+                                <h3 className="font-extrabold text-slate-900 text-lg">Rewards & Hooks</h3>
                             </div>
-                            <div className="grid grid-cols-1 gap-8">
-                                <div>
-                                    <span className="block text-[#7311d4] font-black uppercase text-xs tracking-[0.2em] mb-4">Treasure</span>
-                                    <div className="text-slate-700 text-lg space-y-2 prose prose-slate max-w-none">
+                            <div className="flex flex-col lg:flex-row gap-8 items-start">
+                                {narrative?.rewards && (
+                                    <div className="flex-1 text-slate-700 text-base prose prose-slate max-w-none">
                                         <ReactMarkdown>{narrative.rewards}</ReactMarkdown>
                                     </div>
-                                </div>
+                                )}
+                                {campaignPlan?.macguffin_image_base64 && campaignPlan.macguffin_image_base64 !== '[GENERATED IMAGE STORED]' && (
+                                    <div
+                                        className="flex-shrink-0 lg:w-72 cursor-zoom-in group/mac"
+                                        onClick={() => { setMacguffinLightbox(true); document.body.style.overflow = 'hidden'; }}
+                                    >
+                                        <div className="relative">
+                                            <img
+                                                src={`data:image/jpeg;base64,${campaignPlan.macguffin_image_base64}`}
+                                                alt="The Treasure"
+                                                className="w-full rounded-xl shadow-md object-cover group-hover/mac:scale-[1.02] transition-transform duration-500"
+                                                style={{ maxHeight: '260px' }}
+                                            />
+                                            <div className="absolute top-2 right-2 opacity-0 group-hover/mac:opacity-100 transition-opacity bg-black/50 rounded-full p-1">
+                                                <span className="material-symbols-outlined !text-[16px] text-white">zoom_in</span>
+                                            </div>
+                                        </div>
+                                        {campaignPlan?.loot_concept && (
+                                            <p className="text-xs text-slate-400 text-center mt-2 italic">{campaignPlan.loot_concept}</p>
+                                        )}
+                                    </div>
+                                )}
                             </div>
                         </section>
                     )}

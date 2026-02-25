@@ -17,6 +17,7 @@ export default function Home() {
   const [narrative, setNarrative] = useState<any>(null);
   const [threadId, setThreadId] = useState<string | null>(null);
   const [charIndex, setCharIndex] = useState(0);
+  const [groupLightbox, setGroupLightbox] = useState(false);
   const [hitlData, setHitlData] = useState<any>(null);
   const [difficulty, setDifficulty] = useState("Medium");
   const [terrain, setTerrain] = useState("Forest");
@@ -297,7 +298,7 @@ export default function Home() {
         </h1>
 
         {/* Generate Form */}
-        <form onSubmit={handleSubmit} className="w-full max-w-4xl flex flex-col gap-6 mb-16">
+        <form onSubmit={handleSubmit} className="w-full max-w-6xl flex flex-col gap-6 mb-16">
 
           {/* 1. Primary Prompt Input */}
           <div className="bg-white dark:bg-zinc-900/80 p-2.5 rounded-2xl border border-slate-200 dark:border-zinc-800 shadow-lg dark:shadow-[0_4px_30px_rgba(0,0,0,0.4)] flex items-center focus-within:ring-2 focus-within:ring-rose-500/50 focus-within:border-rose-500/50 transition-all">
@@ -401,7 +402,7 @@ export default function Home() {
         {/* Output Content Area */}
         {/* Only show the container if there is actually output or a loading status */}
         {(status || narrative || campaignPlan || partyDetails || hitlData) && (
-          <div className="w-full max-w-4xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-3xl p-6 md:p-10 shadow-xl dark:shadow-[0_8px_30px_rgba(0,0,0,0.5)] min-h-[400px]">
+          <div className="w-full max-w-6xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-3xl p-6 md:p-10 shadow-xl dark:shadow-[0_8px_30px_rgba(0,0,0,0.5)] min-h-[400px]">
             {/* Status Tracker */}
             {status && status !== "Generation Complete!" && (
               <div className="text-slate-400 dark:text-zinc-500 text-xs mb-6 pb-6 border-b border-slate-100 dark:border-zinc-800 flex items-center gap-2">
@@ -437,12 +438,90 @@ export default function Home() {
                 </div>
               )}
 
+              {/* 2b. Party Group Image Card */}
+              {campaignPlan?.group_image_base64 && campaignPlan.group_image_base64 !== '[GENERATED IMAGE STORED]' && (
+                <>
+                  {/* Lightbox */}
+                  {groupLightbox && (
+                    <div
+                      className="fixed left-0 top-0 w-screen z-[9999] bg-black/90 flex items-center justify-center p-4 backdrop-blur-sm cursor-zoom-out"
+                      style={{ height: '100dvh' }}
+                      onClick={() => { setGroupLightbox(false); document.body.style.overflow = ''; }}
+                    >
+                      <img
+                        src={`data:image/jpeg;base64,${campaignPlan.group_image_base64}`}
+                        alt="The Party"
+                        className="max-h-[90vh] max-w-[90vw] object-contain rounded-2xl shadow-2xl"
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    </div>
+                  )}
+
+                  {/* Card: info left, image right */}
+                  <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl overflow-hidden flex flex-col md:flex-row shadow-[0_8px_30px_rgb(0,0,0,0.06)] dark:shadow-xl transition-colors duration-300">
+
+                    {/* Left: Party metadata */}
+                    <div className="flex-1 p-8 md:p-10 flex flex-col justify-center gap-4">
+                      <div className="text-[10px] uppercase tracking-[0.2em] font-black text-violet-500">Adventuring Party</div>
+                      <h2 className="text-3xl md:text-4xl font-black text-slate-900 dark:text-white tracking-tight leading-tight">
+                        {partyDetails?.party_name || campaignPlan?.party_name || "The Heroes"}
+                      </h2>
+                      <div className="flex flex-wrap gap-2 mt-1">
+                        {terrain && (
+                          <span className="flex items-center gap-1.5 text-xs font-bold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-full">
+                            <span className="material-symbols-outlined !text-sm">landscape</span>
+                            {terrain}
+                          </span>
+                        )}
+                        {partyDetails?.characters && (
+                          <span className="flex items-center gap-1.5 text-xs font-bold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-full">
+                            <span className="material-symbols-outlined !text-sm">group</span>
+                            {partyDetails.characters.length} Heroes
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed mt-2">
+                        Click the portrait to view the full group shot.
+                      </p>
+                    </div>
+
+                    {/* Right: Tall image panel */}
+                    <div
+                      className="relative w-full md:w-[55%] flex-shrink-0 bg-slate-900 overflow-hidden cursor-zoom-in group/party"
+                      style={{ minHeight: '400px' }}
+                      onClick={() => { setGroupLightbox(true); document.body.style.overflow = 'hidden'; }}
+                    >
+                      <img
+                        src={`data:image/jpeg;base64,${campaignPlan.group_image_base64}`}
+                        alt="The Party"
+                        className="absolute inset-0 w-full h-full object-cover object-center group-hover/party:scale-105 transition-transform duration-700"
+                      />
+                      {/* Left-fade gradient (blends into info column on desktop) */}
+                      <div className="absolute inset-y-0 left-0 w-24 bg-gradient-to-l from-transparent to-white dark:to-slate-900 hidden md:block pointer-events-none" />
+                      {/* Bottom gradient for text readability */}
+                      <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-black/80 via-black/40 to-transparent pointer-events-none" />
+                      {/* Text overlay */}
+                      <div className="absolute bottom-6 left-6 md:bottom-8 md:left-8 z-10 pointer-events-none">
+                        <p className="text-[10px] uppercase tracking-[0.2em] font-black text-violet-300 mb-1">Group Portrait</p>
+                        <h3 className="text-2xl md:text-3xl font-black text-white drop-shadow-md leading-tight">
+                          {partyDetails?.party_name || "The Heroes"}
+                        </h3>
+                      </div>
+                      {/* Zoom hint */}
+                      <div className="absolute top-3 right-3 opacity-0 group-hover/party:opacity-100 transition-opacity bg-black/50 rounded-full p-1.5 z-10">
+                        <span className="material-symbols-outlined !text-[18px] text-white">zoom_in</span>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+
               {/* 3. The Party Sheet (Or Initial Suggestions) */}
               {partyDetails?.characters ? (
                 <div>
                   <h2 className="text-2xl font-extrabold text-rose-500 mb-6 border-b border-slate-200 dark:border-zinc-800 pb-4 flex items-center gap-3">
                     <span className="material-symbols-outlined !text-3xl">group</span>
-                    {partyDetails.party_name || "The Heroes"}
+                    {partyDetails.party_name || campaignPlan?.party_name || "The Heroes"}
                   </h2>
                   {/* Character Carousel */}
                   {(() => {
@@ -497,7 +576,7 @@ export default function Home() {
                 <div>
                   <h2 className="text-2xl font-extrabold text-rose-500 mb-6 border-b border-slate-200 dark:border-zinc-800 pb-4 flex items-center gap-3">
                     <span className="material-symbols-outlined !text-3xl">lightbulb</span>
-                    Suggested Heroes
+                    {campaignPlan?.party_name || partyDetails?.party_name || "Suggested Heroes"}
                   </h2>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                     {campaignPlan.suggested_party.map((hero: any, i: number) => (
