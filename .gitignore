@@ -13,4 +13,5 @@ exit_reason.txt
 logs/dnd_mcp_server.log
 ./logs/**
 test_graph.py
-public/campaign_imagesdb/state.db
+public/campaign_images
+db/state.db
