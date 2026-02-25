@@ -10,7 +10,7 @@ from langgraph.prebuilt import ToolNode, tools_condition
 from langchain_core.tools import tool, ToolException
 from langchain_mcp_adapters.tools import load_mcp_tools
 from langchain.agents import create_agent
-from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, BaseMessage
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, BaseMessage, ToolMessage
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_community.tools import DuckDuckGoSearchResults
@@ -21,6 +21,7 @@ import traceback
 import sys
 import base64
 import random
+import logging
     
 from mcp.client.sse import sse_client
 from mcp.client.session import ClientSession
@@ -55,7 +56,7 @@ load_dotenv()
 
 # Define model (Using Gemini 3.1 Pro or your preferred capable model)
 research_model = ChatGoogleGenerativeAI(
-    model="gemini-2.5-pro",
+    model="gemini-2.5-flash",
     temperature=0.2, # Low temperature for planning and extraction
     verbose=False
 )
@@ -172,6 +173,15 @@ class CampaignPlan(BaseModel):
     group_image_base64: Optional[str] = Field(default=None, description="Group portrait of all heroes")
     macguffin_image_base64: Optional[str] = Field(default=None, description="Image of the final loot or artifact")
 
+class DynamicHitlActions(BaseModel):
+    """Dynamically generated branch options for the DM to choose from."""
+    action_1_label: str = Field(description="Short emoji label for Option 1 (e.g. '🔥 The dragon awakes')")
+    action_1_payload: str = Field(description="The actual text prompt to send back to the AI for Option 1")
+    action_2_label: str = Field(description="Short emoji label for Option 2")
+    action_2_payload: str = Field(description="The actual text prompt to send back to the AI for Option 2")
+    action_3_label: str = Field(description="Short emoji label for Option 3")
+    action_3_payload: str = Field(description="The actual text prompt to send back to the AI for Option 3")
+
 class CampaignContent(BaseModel):
     """The final generated prose."""
     title: str = Field(description="Epic campaign title")
@@ -189,7 +199,6 @@ class CampaignState(BaseModel):
     terrain: Optional[Literal["Arctic", "Coast", "Desert", "Forest", "Grassland", "Mountain", "Swamp", "Underdark"]] = None
     difficulty: Optional[Literal["Easy", "Medium", "Hard", "Deadly"]] = None
     requirements: Optional[str] = None
-    roster_locked: bool = True
     
     # State Accumulators
     party_details: Optional[PartyDetails] = None
@@ -238,7 +247,7 @@ def planner_node(state: CampaignState):
         "a prison break from the most secure dungeon in the realm", "a mimic colony disguised as an entire tavern"
     ]
     spark = random.choice(sparks)
-    search_query = f"D&D quest ideas for a {state.difficulty or 'Medium'} campaign in {state.terrain or 'Mixed Terrain'} involving {spark}"
+    search_query = f"D&D quest ideas for a {state.difficulty or 'Medium'} campaign in {state.terrain or 'Forest'} involving {spark}"
     
     # Try Agentic Ideation using Native Google Search
     reference_material = ""
@@ -370,35 +379,70 @@ async def party_creation_node(state: CampaignState):
         just_finished_tools = True
 
     # Generate!
-    try:
-        if just_finished_tools:
-            # Force Pydantic output!
-            structured_llm = research_model.with_structured_output(PartyDetails)
-            final_party = await structured_llm.ainvoke(messages)
-            
-            # Standard cleanup
-            if party_name != "Not Provided":
-                final_party.party_name = party_name
+    # Generate!
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            if just_finished_tools:
+                # Force Pydantic output!
+                structured_llm = research_model.with_structured_output(PartyDetails)
+                final_party = await structured_llm.ainvoke(messages)
                 
-            final_party.party_size = party_size
-            final_party.characters = final_party.characters[:party_size]
+                # Standard cleanup
+                if party_name != "Not Provided":
+                    final_party.party_name = party_name
+                    
+                final_party.party_size = party_size
+                final_party.characters = final_party.characters[:party_size]
 
-            while len(final_party.characters) < party_size:
-                final_party.characters.append(
-                    Character(name=f"TBD Adventurer {len(final_party.characters) + 1}", race="Unknown", class_name="Adventurer", level=1)
+                while len(final_party.characters) < party_size:
+                    final_party.characters.append(
+                        Character(name=f"TBD Adventurer {len(final_party.characters) + 1}", race="Unknown", class_name="Adventurer", level=1)
+                    )
+                
+                return {
+                    "messages": [AIMessage(content="Generated final PartyDetails JSON.")],
+                    "party_details": final_party.model_dump(by_alias=True)
+                }
+            else:
+                # Let it decide whether to use tools or write text
+                response = await model_with_tools.ainvoke(messages)
+                
+                if not getattr(response, 'tool_calls', None):
+                    print("DEBUG: Model declined to use tools. Forcing structured output...", file=sys.stderr)
+                    structured_llm = research_model.with_structured_output(PartyDetails)
+                    final_party = await structured_llm.ainvoke(messages)
+                    
+                    if party_name != "Not Provided":
+                        final_party.party_name = party_name
+                        
+                    final_party.party_size = party_size
+                    final_party.characters = final_party.characters[:party_size]
+
+                    while len(final_party.characters) < party_size:
+                        final_party.characters.append(
+                            Character(name=f"TBD Adventurer {len(final_party.characters) + 1}", race="Unknown", class_name="Adventurer", level=1)
+                        )
+                    
+                    return {
+                        "messages": [AIMessage(content="Generated final PartyDetails JSON (no tools).")],
+                        "party_details": final_party.model_dump(by_alias=True)
+                    }
+                
+                # Sanitize response to prevent pickling un-awaited Http/Google SDK coroutines inside response_metadata
+                clean_response = AIMessage(
+                    content=str(response.content) if response.content else "",
+                    tool_calls=getattr(response, 'tool_calls', []),
+                    id=response.id
                 )
-            
-            return {
-                "messages": [AIMessage(content="Generated final PartyDetails JSON.")],
-                "party_details": final_party.model_dump(by_alias=True)
-            }
-        else:
-            # Let it decide whether to use tools or write text
-            response = await model_with_tools.ainvoke(messages)
-            return {"messages": [response]} 
-    except Exception as e:
-        print(f"Model Invocation Error: {e}", file=sys.stderr)
-        return {"messages": [AIMessage(content="Tool connection failed, I will generate default characters.")]}
+                return {"messages": [clean_response]}
+        except Exception as e:
+            if attempt < max_retries - 1:
+                print(f"Model Invocation Error on attempt {attempt + 1}: {e}. Retrying in 3 seconds...", file=sys.stderr)
+                await asyncio.sleep(3)
+            else:
+                print(f"Model Invocation Error after {max_retries} attempts: {e}", file=sys.stderr)
+                return {"messages": [AIMessage(content="Tool connection failed, I will generate default characters.")]}
 
 async def mcp_tool_node(state: CampaignState):
     result = None
@@ -410,8 +454,19 @@ async def mcp_tool_node(state: CampaignState):
             except Exception as e:
                 print(f"Tool Execution Error: {e}", file=sys.stderr)
         
-    if result is not None:
-        return result
+    if result is not None and "messages" in result:
+        sanitized = []
+        for msg in result["messages"]:
+            if isinstance(msg, ToolMessage):
+                sanitized.append(ToolMessage(
+                    content=str(msg.content),
+                    name=msg.name,
+                    tool_call_id=msg.tool_call_id,
+                    status=msg.status
+                ))
+            else:
+                sanitized.append(msg)
+        return {"messages": sanitized}
     return {"messages": []}
 
 async def generate_image_base64(prompt: str) -> Optional[str]:
@@ -565,7 +620,7 @@ async def character_portrait_node(state: CampaignState):
         "campaign_plan": state.campaign_plan
     }
 
-def narrative_writer_node(state: CampaignState):
+async def narrative_writer_node(state: CampaignState):
     """Node 3: Takes the structured facts and writes the final, high-quality Markdown prose."""
 
     # Clear tools messages from previos node
@@ -629,7 +684,7 @@ def narrative_writer_node(state: CampaignState):
     
     # We use the higher temperature model here for better creative writing
     structured_writer = writer_model.with_structured_output(CampaignContent)
-    content = structured_writer.invoke(prompt)
+    content = await structured_writer.ainvoke(prompt)
     
     return {
         "title": content.title,
@@ -638,7 +693,7 @@ def narrative_writer_node(state: CampaignState):
         "rewards": content.rewards
     }
 
-def determine_next_steps(state: CampaignState, current_node: str):
+async def determine_next_steps(state: CampaignState, current_node: str):
     """Determine the next steps in the campaign generation process."""
 
     if current_node == "PlannerNode":
@@ -656,7 +711,8 @@ def determine_next_steps(state: CampaignState, current_node: str):
         - "NO" if they only want character changes
         """
 
-        wants_story = "YES" in research_model.invoke(prompt).content.upper()
+        response = await research_model.ainvoke(prompt)
+        wants_story = "YES" in response.content.upper()
         return "CharacterPortraitNode" if wants_story else END # If story changes, go to portraits, otherwise end.
 
     elif current_node == "CharacterPortraitNode":
@@ -673,7 +729,8 @@ def determine_next_steps(state: CampaignState, current_node: str):
             - "YES" if they explicitly asked for story/plot/narrative/title changes
             - "NO" if they only want character changes (which are already handled by portraits)
             """
-            wants_story = "YES" in research_model.invoke(prompt).content.upper()
+            response = await research_model.ainvoke(prompt)
+            wants_story = "YES" in response.content.upper()
             return "NarrativeWriterNode" if wants_story else END
         else:
             return "NarrativeWriterNode" # First run, always go to narrative after portraits
@@ -695,10 +752,20 @@ campaign_graph.add_node("MCPToolNode", mcp_tool_node)
 # Always start at the PlannerNode. If we are editing, PlannerNode handles the edit.
 campaign_graph.add_edge(START, "PlannerNode")
 
+# Async Route Wrappers for LangGraph
+async def route_planner(state: CampaignState):
+    return await determine_next_steps(state, "PlannerNode")
+
+async def route_party(state: CampaignState):
+    return await determine_next_steps(state, "PartyCreationNode")
+
+async def route_portraits(state: CampaignState):
+    return await determine_next_steps(state, "CharacterPortraitNode")
+
 # Step 2: Dynamic Routing
 campaign_graph.add_conditional_edges(
     "PlannerNode",
-    lambda state: determine_next_steps(state, "PlannerNode"),
+    route_planner,
     {
         "PartyCreationNode": "PartyCreationNode",
         "NarrativeWriterNode": "NarrativeWriterNode",
@@ -728,7 +795,7 @@ def dummy_route_node(state: CampaignState): return {"messages": []}
 campaign_graph.add_node("route_next", dummy_route_node)
 campaign_graph.add_conditional_edges(
     "route_next", 
-    lambda state: determine_next_steps(state, "PartyCreationNode"),
+    route_party,
      {
         "CharacterPortraitNode": "CharacterPortraitNode", 
         "NarrativeWriterNode": "NarrativeWriterNode", 
@@ -737,7 +804,7 @@ campaign_graph.add_conditional_edges(
 
 campaign_graph.add_conditional_edges(
     "CharacterPortraitNode", 
-    lambda state: determine_next_steps(state, "CharacterPortraitNode"), 
+    route_portraits, 
     {
         "NarrativeWriterNode": "NarrativeWriterNode", 
         END: END
