@@ -183,18 +183,72 @@ async def get_thread_data(thread_id: str):
             "rewards": vals.get("rewards")
         }
         
+    # Include chat history
+    chat_messages = vals.get("chat_messages", [])
+    
     # We pack the parsed state into structural elements the frontend understands natively as output history
     history_data = {
         "messages": [
             {"output": json.dumps({"campaign_plan": plan_dict}) if plan_dict else "{}"},
             {"output": json.dumps({"party_details": party_dict}) if party_dict else "{}"},
             {"output": json.dumps(narrative_dict) if narrative_dict else "{}"}
-        ]
+        ],
+        "chat_messages": chat_messages
     }
     
     return history_data
 
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+
+class ChatRequest(BaseModel):
+    message: str
+
+@app.post("/threads/{thread_id}/chat")
+async def chat_with_campaign(thread_id: str, req: ChatRequest):
+    """Send a chat message to an existing campaign thread and get a DM response."""
+    
+    config = {"configurable": {"thread_id": thread_id}}
+    
+    async with AsyncSqliteSaver.from_conn_string(DB_PATH) as memory:
+        compiled_graph = app_graph.compile(checkpointer=memory, interrupt_after=["PlannerNode"])
+        
+        # Get current state to read existing chat history
+        current_state = await compiled_graph.aget_state(config)
+        if not current_state or not current_state.values:
+            return {"error": "Thread not found"}
+        
+        existing_chat = current_state.values.get("chat_messages", [])
+        updated_chat = existing_chat + [{"role": "user", "content": req.message}]
+        
+        # Directly invoke the chat_node function with reconstructed state
+        from dnd import chat_node, CampaignState
+        
+        vals = current_state.values
+        state = CampaignState(
+            terrain=vals.get("terrain"),
+            difficulty=vals.get("difficulty"),
+            requirements=vals.get("requirements"),
+            campaign_plan=vals.get("campaign_plan"),
+            party_details=vals.get("party_details"),
+            title=vals.get("title"),
+            description=vals.get("description"),
+            background=vals.get("background"),
+            rewards=vals.get("rewards"),
+            chat_messages=updated_chat,
+        )
+        
+        result = await chat_node(state)
+        ai_response = result.get("chat_response", "I'm sorry, I couldn't formulate a response.")
+        
+        # Save the full chat history back to graph state for persistence
+        final_chat = updated_chat + [{"role": "assistant", "content": ai_response}]
+        await compiled_graph.aupdate_state(
+            config,
+            {"chat_messages": final_chat, "chat_response": ai_response},
+            as_node="NarrativeWriterNode"
+        )
+        
+        return {"response": ai_response, "chat_messages": final_chat}
 
 @app.post("/generate")
 async def generate_quest(req: GenerateRequest):

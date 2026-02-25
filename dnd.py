@@ -210,6 +210,10 @@ class CampaignState(BaseModel):
     background: Optional[str] = None
     rewards: Optional[str] = None
 
+    # Chat (post-generation conversation)
+    chat_messages: list[dict] = Field(default_factory=list, description="Chat history: [{role: 'user'|'assistant', content: str}]")
+    chat_response: Optional[str] = Field(default=None, description="Latest chat response from the DM")
+
 # --- Tools ---
 @tool
 def search_internet(query: str) -> str:
@@ -743,11 +747,102 @@ async def determine_next_steps(state: CampaignState, current_node: str):
 # --- Graph Construction ---
 campaign_graph = StateGraph(CampaignState)
 
+# --- Chat Node (post-generation conversation) ---
+async def chat_node(state: CampaignState):
+    """Handles follow-up chat after campaign generation is complete.
+    Uses the full campaign context to respond as a knowledgeable DM."""
+    
+    # Build campaign context summary
+    context_parts = []
+    if state.campaign_plan:
+        plan = state.campaign_plan
+        context_parts.append(f"Campaign: {state.title or 'Untitled'}")
+        context_parts.append(f"Core Conflict: {plan.core_conflict}")
+        context_parts.append(f"Primary Antagonist: {plan.primary_antagonist}")
+        if plan.villain_statblock:
+            v = plan.villain_statblock
+            context_parts.append(f"Villain Details: {plan.primary_antagonist} - HP:{v.hp}, AC:{v.ac}")
+            if v.physical_description:
+                context_parts.append(f"Villain Appearance: {v.physical_description}")
+        if plan.plot_points:
+            context_parts.append(f"Plot Points: {'; '.join(plan.plot_points)}")
+        if plan.factions_involved:
+            context_parts.append(f"Factions: {'; '.join(plan.factions_involved)}")
+        if plan.key_locations:
+            context_parts.append(f"Key Locations: {'; '.join(plan.key_locations)}")
+        context_parts.append(f"Loot: {plan.loot_concept}")
+    
+    if state.party_details:
+        party = state.party_details
+        context_parts.append(f"Party: {party.party_name} ({party.party_size} members)")
+        for c in party.characters:
+            char_info = f"  - {c.name} ({c.race} {c.class_name}, Level {c.level})"
+            if c.backstory_hook:
+                char_info += f" — {c.backstory_hook}"
+            context_parts.append(char_info)
+    
+    if state.background:
+        context_parts.append(f"Background Lore: {state.background}")
+    if state.description:
+        context_parts.append(f"Description: {state.description}")
+    if state.rewards:
+        context_parts.append(f"Rewards: {state.rewards}")
+    
+    context_parts.append(f"Setting: {state.terrain or 'Fantasy world'}, Difficulty: {state.difficulty or 'Medium'}")
+    
+    campaign_context = "\n".join(context_parts)
+    
+    # Build the chat history for context
+    chat_history = ""
+    if state.chat_messages:
+        for msg in state.chat_messages:
+            role = "DM" if msg.get("role") == "assistant" else "Player"
+            chat_history += f"\n{role}: {msg.get('content', '')}"
+    
+    system_prompt = f"""You are an expert Dungeon Master who has just created an incredible D&D campaign. 
+You have deep knowledge of every detail of this campaign and can answer any question about it.
+You speak in a warm, knowledgeable, and slightly dramatic tone — like a seasoned DM at the table.
+Keep responses concise but flavorful (2-4 paragraphs max unless asked for detail).
+You can elaborate on lore, suggest encounter modifications, provide tactical advice, 
+expand on NPC motivations, create additional side quests, or help with any campaign-related questions.
+
+--- CAMPAIGN CONTEXT ---
+{campaign_context}
+--- END CONTEXT ---
+"""
+    
+    # Get the latest user message (last item in chat_messages)
+    user_message = ""
+    if state.chat_messages:
+        user_message = state.chat_messages[-1].get("content", "")
+    
+    messages_for_llm = [
+        SystemMessage(content=system_prompt),
+    ]
+    
+    # Add previous chat as conversation history
+    if len(state.chat_messages) > 1:
+        for msg in state.chat_messages[:-1]:
+            if msg.get("role") == "user":
+                messages_for_llm.append(HumanMessage(content=msg["content"]))
+            else:
+                messages_for_llm.append(AIMessage(content=msg["content"]))
+    
+    # Add current user message
+    messages_for_llm.append(HumanMessage(content=user_message))
+    
+    response = await writer_model.ainvoke(messages_for_llm)
+    
+    return {
+        "chat_response": response.content
+    }
+
 campaign_graph.add_node("PlannerNode", planner_node)
 campaign_graph.add_node("PartyCreationNode", party_creation_node)
 campaign_graph.add_node("CharacterPortraitNode", character_portrait_node)
 campaign_graph.add_node("NarrativeWriterNode", narrative_writer_node)
 campaign_graph.add_node("MCPToolNode", mcp_tool_node)
+campaign_graph.add_node("ChatNode", chat_node)
 
 # Always start at the PlannerNode. If we are editing, PlannerNode handles the edit.
 campaign_graph.add_edge(START, "PlannerNode")
@@ -812,6 +907,7 @@ campaign_graph.add_conditional_edges(
 
 campaign_graph.add_edge("MCPToolNode", "PartyCreationNode")
 campaign_graph.add_edge("NarrativeWriterNode", END)
+campaign_graph.add_edge("ChatNode", END)
 
 memory = MemorySaver()
 app = campaign_graph.compile(checkpointer=memory, interrupt_after=["PlannerNode"])

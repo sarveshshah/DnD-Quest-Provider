@@ -33,6 +33,8 @@ export default function Home() {
   const [requirements, setRequirements] = useState("");
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [chatMessages, setChatMessages] = useState<{ role: string; content: string }[]>([]);
+  const [isChatLoading, setIsChatLoading] = useState(false);
 
   // Load active thread from LocalStorage on mount to preserve state across refreshes
   useEffect(() => {
@@ -55,6 +57,7 @@ export default function Home() {
       setHitlData(null);
       setPrompt("");
       setStatus("");
+      setChatMessages([]);
       localStorage.removeItem('dnd_active_thread_id');
       return;
     }
@@ -112,6 +115,7 @@ export default function Home() {
         setCampaignPlan(loadedPlan);
         setPartyDetails(loadedParty);
         setNarrative(loadedNarrative);
+        setChatMessages(data.chat_messages || []);
         setStatus((loadedNarrative || loadedPlan || legacyText) ? "Generation Complete!" : "Waiting for your approval...");
       }
     } catch (err) {
@@ -316,28 +320,79 @@ export default function Home() {
           </div>
         )}
 
-        {/* Generate Form — hidden during generation, floating bar after complete */}
+        {/* Generate Form / Chat — hidden during generation, floating bar after complete */}
         <form
-          onSubmit={handleSubmit}
-          className={`w-full flex flex-col gap-6 transition-all duration-500 ${status && status !== "Generation Complete!"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            if (!prompt.trim()) return;
+            if (status === "Generation Complete!" && threadId) {
+              // Chat mode
+              const userMsg = prompt.trim();
+              setChatMessages(prev => [...prev, { role: 'user', content: userMsg }]);
+              setPrompt("");
+              setIsChatLoading(true);
+              try {
+                const res = await fetch(`http://localhost:8001/threads/${threadId}/chat`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ message: userMsg })
+                });
+                const data = await res.json();
+                if (data.response) {
+                  setChatMessages(data.chat_messages || []);
+                }
+              } catch (err) {
+                console.error('Chat error:', err);
+                setChatMessages(prev => [...prev, { role: 'assistant', content: 'Sorry, I encountered an error. Please try again.' }]);
+              } finally {
+                setIsChatLoading(false);
+              }
+            } else {
+              handleSubmit(e);
+            }
+          }}
+          className={`w-full flex flex-col gap-2 transition-all duration-500 ${status && status !== "Generation Complete!"
               ? 'hidden'
               : status === "Generation Complete!"
                 ? 'fixed bottom-0 left-0 right-0 z-50 px-4 pb-4 pt-2 max-w-3xl mx-auto'
-                : 'max-w-6xl mb-16'
+                : 'max-w-6xl mb-16 gap-6'
             }`}
         >
 
-          {/* 1. Primary Prompt Input */}
+          {/* Chat messages — only in floating mode */}
+          {status === "Generation Complete!" && chatMessages.length > 0 && (
+            <div className="bg-white/95 dark:bg-zinc-900/95 backdrop-blur-xl rounded-2xl border border-slate-200 dark:border-zinc-700 shadow-lg max-h-[200px] overflow-y-auto p-4 space-y-3 custom-scrollbar">
+              {chatMessages.map((msg, i) => (
+                <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${msg.role === 'user'
+                      ? 'bg-rose-600 text-white rounded-br-md'
+                      : 'bg-slate-100 dark:bg-zinc-800 text-slate-800 dark:text-slate-200 rounded-bl-md'
+                    }`}>
+                    {msg.content}
+                  </div>
+                </div>
+              ))}
+              {isChatLoading && (
+                <div className="flex justify-start">
+                  <div className="bg-slate-100 dark:bg-zinc-800 rounded-2xl rounded-bl-md px-4 py-2.5 text-sm text-slate-500 dark:text-slate-400 animate-pulse">
+                    The DM is thinking...
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Input bar */}
           <div className={`bg-white dark:bg-zinc-900/80 p-2.5 rounded-2xl border border-slate-200 dark:border-zinc-800 flex items-center focus-within:ring-2 focus-within:ring-rose-500/50 focus-within:border-rose-500/50 transition-all ${status === "Generation Complete!"
-            ? 'shadow-[0_-4px_30px_rgba(0,0,0,0.12)] dark:shadow-[0_-4px_30px_rgba(0,0,0,0.5)] backdrop-blur-xl bg-white/95 dark:bg-zinc-900/95'
-            : 'shadow-lg dark:shadow-[0_4px_30px_rgba(0,0,0,0.4)]'
+              ? 'shadow-[0_-4px_30px_rgba(0,0,0,0.12)] dark:shadow-[0_-4px_30px_rgba(0,0,0,0.5)] backdrop-blur-xl bg-white/95 dark:bg-zinc-900/95'
+              : 'shadow-lg dark:shadow-[0_4px_30px_rgba(0,0,0,0.4)]'
             }`}>
             <img src="/favicon.png" alt="" className="w-8 h-8 ml-4 object-contain" />
             <input
               type="text"
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
-              placeholder="What kind of adventure are you looking for? (e.g. A mystery involving a mimic tavern...)"
+              placeholder={status === "Generation Complete!" ? "Chat with your DM... (e.g. Tell me more about the villain)" : "What kind of adventure are you looking for? (e.g. A mystery involving a mimic tavern...)"}
               className="flex-1 bg-transparent px-4 py-4 text-lg focus:outline-none text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-zinc-500"
             />
             <button type="submit" disabled={isLoadingHistory} title="Generate Campaign" className="bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white p-4 rounded-xl transition-all shadow-md shadow-rose-600/20 mr-1 flex items-center justify-center">
