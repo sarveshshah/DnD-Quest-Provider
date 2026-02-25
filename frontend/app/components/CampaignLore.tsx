@@ -14,8 +14,6 @@ export default function CampaignLore({ narrative, campaignPlan, terrain = "Fores
     const [macguffinLightbox, setMacguffinLightbox] = useState(false);
     const [coverLightbox, setCoverLightbox] = useState(false);
 
-    const hasCover = !!campaignPlan?.cover_image_base64;
-
     return (
         <div className="w-full flex justify-center py-8">
             {/* Macguffin lightbox */}
@@ -35,7 +33,7 @@ export default function CampaignLore({ narrative, campaignPlan, terrain = "Fores
             )}
 
             {/* Cover lightbox */}
-            {coverLightbox && hasCover && (
+            {coverLightbox && campaignPlan?.cover_image_base64 && (
                 <div
                     className="fixed left-0 top-0 w-screen z-[9999] bg-black/90 flex items-center justify-center p-4 backdrop-blur-sm cursor-zoom-out"
                     style={{ height: '100dvh' }}
@@ -53,8 +51,8 @@ export default function CampaignLore({ narrative, campaignPlan, terrain = "Fores
             {/* Card */}
             <div className="w-full bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.3)] dark:shadow-[0_4px_30px_rgba(0,0,0,0.6)] border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden transition-colors duration-300">
 
-                {/* Cover image — separate clickable block */}
-                {hasCover && (
+                {/* Cover image — separate clickable block, title goes below */}
+                {campaignPlan?.cover_image_base64 && (
                     <div
                         className="relative w-full overflow-hidden cursor-zoom-in group/cover"
                         style={{ maxHeight: '460px' }}
@@ -72,18 +70,18 @@ export default function CampaignLore({ narrative, campaignPlan, terrain = "Fores
                     </div>
                 )}
 
-                {/* Title / badges / description — below the image */}
+                {/* Title / badges / description — always below the image */}
                 <div className="p-8 md:p-12">
                     <h1 className="font-serif text-5xl md:text-7xl font-extrabold leading-tight mb-8 tracking-tight text-slate-900 dark:text-white">
                         {narrative?.title || "Drafting Campaign..."}
                     </h1>
 
                     <div className="flex flex-wrap items-center gap-4 mb-8">
-                        <div className="flex items-center gap-2 rounded-full px-5 py-2 text-sm font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                        <div className="flex items-center gap-2 rounded-full px-5 py-2 text-sm font-bold font-sans bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
                             <span className="material-symbols-outlined !text-lg">landscape</span>
                             {terrain}
                         </div>
-                        <div className="flex items-center gap-2 rounded-full px-5 py-2 text-sm font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                        <div className="flex items-center gap-2 rounded-full px-5 py-2 text-sm font-bold font-sans bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
                             {difficulty === 'Hard' || difficulty === 'Deadly' ? (
                                 <span className="material-symbols-outlined !text-lg text-red-400">skull</span>
                             ) : (
@@ -99,6 +97,7 @@ export default function CampaignLore({ narrative, campaignPlan, terrain = "Fores
                         </div>
                     )}
 
+                    {/* If no narrative description yet but there's a thought process, show it */}
                     {!narrative?.description && campaignPlan?.thought_process && (
                         <div className="relative pl-6 border-l-4 border-[#7311d4]/30 text-lg italic text-slate-500 dark:text-slate-400">
                             "The DM's quill dances across the parchment: {campaignPlan.thought_process}"
@@ -117,7 +116,7 @@ export default function CampaignLore({ narrative, campaignPlan, terrain = "Fores
                             <section>
                                 <div className="flex items-center gap-4 mb-6">
                                     <span className="text-[#7311d4] font-bold text-sm uppercase tracking-[0.25em]">01. Background Lore</span>
-                                    <div className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
+                                    <div className="h-px flex-1 bg-slate-200 dark:bg-slate-700"></div>
                                 </div>
                                 <div className="prose prose-slate dark:prose-invert max-w-none text-base leading-relaxed text-slate-800 dark:text-slate-300">
                                     <ReactMarkdown>{narrative.background}</ReactMarkdown>
@@ -131,7 +130,7 @@ export default function CampaignLore({ narrative, campaignPlan, terrain = "Fores
                                 <section>
                                     <div className="flex items-center gap-4 mb-6">
                                         <span className="text-[#7311d4] font-bold text-sm uppercase tracking-[0.25em]">{narrative ? "02." : "01."} Core Conflict</span>
-                                        <div className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
+                                        <div className="h-px flex-1 bg-slate-200 dark:bg-slate-700"></div>
                                     </div>
                                     <p className="text-lg leading-relaxed text-slate-800 dark:text-slate-200 font-medium">{campaignPlan.core_conflict}</p>
                                 </section>
@@ -141,7 +140,7 @@ export default function CampaignLore({ narrative, campaignPlan, terrain = "Fores
                                 <section>
                                     <div className="flex items-center gap-4 mb-6">
                                         <span className="text-[#7311d4] font-bold text-sm uppercase tracking-[0.25em]">{narrative ? "03." : "02."} Plot Outline</span>
-                                        <div className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
+                                        <div className="h-px flex-1 bg-slate-200 dark:bg-slate-700"></div>
                                     </div>
                                     <ol className="space-y-5">
                                         {campaignPlan.plot_points.map((point: string, idx: number) => (
@@ -200,7 +199,7 @@ export default function CampaignLore({ narrative, campaignPlan, terrain = "Fores
                         </div>
                     )}
 
-                    {/* Rewards + Macguffin — Card */}
+                    {/* Rewards + Macguffin — Card layout matching party card */}
                     {(narrative?.rewards || (campaignPlan?.macguffin_image_base64 && campaignPlan.macguffin_image_base64 !== '[GENERATED IMAGE STORED]')) && (
                         <div className="bg-white dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-3xl overflow-hidden flex flex-col md:flex-row shadow-[0_8px_30px_rgb(0,0,0,0.06)] dark:shadow-[0_8px_30px_rgba(0,0,0,0.3)]">
 
@@ -229,6 +228,8 @@ export default function CampaignLore({ narrative, campaignPlan, terrain = "Fores
                                         alt="The Treasure"
                                         className="absolute inset-0 w-full h-full object-cover object-center group-hover/mac:scale-105 transition-transform duration-700"
                                     />
+                                    {/* Left-fade removed — replaced with stronger bottom gradient */}
+                                    {/* Bottom gradient for text */}
                                     <div className="absolute inset-x-0 bottom-0 h-56 bg-gradient-to-t from-black/95 via-black/60 to-transparent pointer-events-none" />
                                     <div className="absolute bottom-6 left-6 md:bottom-8 md:left-8 z-10 pointer-events-none w-[85%]">
                                         <p className="text-[9px] uppercase tracking-[0.2em] font-black text-violet-300 mb-1" style={{ textShadow: '0 2px 8px rgba(0,0,0,1)' }}>The Loot</p>
@@ -236,6 +237,7 @@ export default function CampaignLore({ narrative, campaignPlan, terrain = "Fores
                                             {campaignPlan.loot_concept || "Legendary Treasure"}
                                         </p>
                                     </div>
+                                    {/* Zoom hint */}
                                     <div className="absolute top-3 right-3 opacity-0 group-hover/mac:opacity-100 transition-opacity bg-black/50 rounded-full p-1.5 z-10">
                                         <span className="material-symbols-outlined !text-[18px] text-white">zoom_in</span>
                                     </div>
