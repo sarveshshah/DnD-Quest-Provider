@@ -12,6 +12,7 @@ export default function CampaignLore({ narrative, campaignPlan, terrain = "Fores
     if (!narrative && !campaignPlan) return null;
 
     const [macguffinLightbox, setMacguffinLightbox] = useState(false);
+    const [coverLightbox, setCoverLightbox] = useState(false);
 
     const hasCover = !!campaignPlan?.cover_image_base64;
 
@@ -33,56 +34,76 @@ export default function CampaignLore({ narrative, campaignPlan, terrain = "Fores
                 </div>
             )}
 
+            {/* Cover lightbox */}
+            {coverLightbox && hasCover && (
+                <div
+                    className="fixed left-0 top-0 w-screen z-[9999] bg-black/90 flex items-center justify-center p-4 backdrop-blur-sm cursor-zoom-out"
+                    style={{ height: '100dvh' }}
+                    onClick={() => { setCoverLightbox(false); document.body.style.overflow = ''; }}
+                >
+                    <img
+                        src={`data:image/jpeg;base64,${campaignPlan.cover_image_base64}`}
+                        alt="Campaign Cover"
+                        className="max-h-[90vh] max-w-[90vw] object-contain rounded-2xl shadow-2xl"
+                        onClick={(e) => e.stopPropagation()}
+                    />
+                </div>
+            )}
+
             {/* Card */}
             <div className="w-full bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.3)] dark:shadow-[0_4px_30px_rgba(0,0,0,0.6)] border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden transition-colors duration-300">
 
-                {/* Header — cover image or plain */}
-                <div
-                    className="relative overflow-hidden flex flex-col justify-end p-8 md:p-12"
-                    style={{ minHeight: hasCover ? '450px' : 'auto' }}
-                >
-                    {hasCover && (
-                        <>
-                            <div
-                                className="absolute inset-0 z-0 bg-cover bg-center"
-                                style={{ backgroundImage: `url(data:image/jpeg;base64,${campaignPlan.cover_image_base64})` }}
-                            />
-                            <div className="absolute inset-0 z-0 bg-gradient-to-t from-[#0f0914]/90 via-[#0f0914]/40 to-transparent" />
-                        </>
+                {/* Cover image — separate clickable block */}
+                {hasCover && (
+                    <div
+                        className="relative w-full overflow-hidden cursor-zoom-in group/cover"
+                        style={{ maxHeight: '460px' }}
+                        onClick={() => { setCoverLightbox(true); document.body.style.overflow = 'hidden'; }}
+                    >
+                        <img
+                            src={`data:image/jpeg;base64,${campaignPlan.cover_image_base64}`}
+                            alt="Campaign Cover"
+                            className="w-full object-cover object-center group-hover/cover:scale-105 transition-transform duration-700"
+                            style={{ maxHeight: '460px' }}
+                        />
+                        <div className="absolute top-3 right-3 opacity-0 group-hover/cover:opacity-100 transition-opacity bg-black/50 rounded-full p-1.5 z-10">
+                            <span className="material-symbols-outlined !text-[18px] text-white">zoom_in</span>
+                        </div>
+                    </div>
+                )}
+
+                {/* Title / badges / description — below the image */}
+                <div className="p-8 md:p-12">
+                    <h1 className="font-serif text-5xl md:text-7xl font-extrabold leading-tight mb-8 tracking-tight text-slate-900 dark:text-white">
+                        {narrative?.title || "Drafting Campaign..."}
+                    </h1>
+
+                    <div className="flex flex-wrap items-center gap-4 mb-8">
+                        <div className="flex items-center gap-2 rounded-full px-5 py-2 text-sm font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                            <span className="material-symbols-outlined !text-lg">landscape</span>
+                            {terrain}
+                        </div>
+                        <div className="flex items-center gap-2 rounded-full px-5 py-2 text-sm font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                            {difficulty === 'Hard' || difficulty === 'Deadly' ? (
+                                <span className="material-symbols-outlined !text-lg text-red-400">skull</span>
+                            ) : (
+                                <span className="material-symbols-outlined !text-lg">signal_cellular_alt</span>
+                            )}
+                            {difficulty}
+                        </div>
+                    </div>
+
+                    {narrative?.description && (
+                        <div className="relative pl-6 border-l-4 border-[#7311d4]/30 text-xl italic text-slate-600 dark:text-slate-400">
+                            "{narrative.description}"
+                        </div>
                     )}
 
-                    <div className="relative z-10 w-full">
-                        <h1 className={`font-serif text-5xl md:text-7xl font-extrabold leading-tight mb-8 tracking-tight ${hasCover ? 'text-white drop-shadow-md' : 'text-slate-900 dark:text-white'}`}>
-                            {narrative?.title || "Drafting Campaign..."}
-                        </h1>
-
-                        <div className="flex flex-wrap items-center gap-4 mb-8">
-                            <div className={`flex items-center gap-2 rounded-full px-5 py-2 text-sm font-bold ${hasCover ? 'bg-[#4c1d95]/90 text-white backdrop-blur-md border border-[#7c3aed]/30 shadow-lg' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300'}`}>
-                                <span className="material-symbols-outlined !text-lg">landscape</span>
-                                {terrain}
-                            </div>
-                            <div className={`flex items-center gap-2 rounded-full px-5 py-2 text-sm font-bold ${hasCover ? 'bg-[#4c1d95]/90 text-white backdrop-blur-md border border-[#7c3aed]/30 shadow-lg' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300'}`}>
-                                {difficulty === 'Hard' || difficulty === 'Deadly' ? (
-                                    <span className="material-symbols-outlined !text-lg text-red-400">skull</span>
-                                ) : (
-                                    <span className="material-symbols-outlined !text-lg">signal_cellular_alt</span>
-                                )}
-                                {difficulty}
-                            </div>
+                    {!narrative?.description && campaignPlan?.thought_process && (
+                        <div className="relative pl-6 border-l-4 border-[#7311d4]/30 text-lg italic text-slate-500 dark:text-slate-400">
+                            "The DM's quill dances across the parchment: {campaignPlan.thought_process}"
                         </div>
-
-                        {narrative?.description && (
-                            <div className={`relative pl-6 border-l-4 text-xl italic ${hasCover ? 'border-white/40 text-white/90 font-medium' : 'border-[#7311d4]/30 text-slate-600 dark:text-slate-400'}`}>
-                                "{narrative.description}"
-                            </div>
-                        )}
-
-                        {!narrative?.description && campaignPlan?.thought_process && (
-                            <div className={`relative pl-6 border-l-4 text-lg italic ${hasCover ? 'border-white/40 text-white/80' : 'border-[#7311d4]/30 text-slate-500 dark:text-slate-400'}`}>
-                                "The DM's quill dances across the parchment: {campaignPlan.thought_process}"
-                            </div>
-                        )}
-                    </div>
+                    )}
                 </div>
 
                 {/* Content Section */}
