@@ -93,12 +93,12 @@ export default function VillainCard({ villain, name }: VillainProps) {
                     {/* Bottom-fade gradient for mobile */}
                     <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-b from-transparent to-white dark:to-slate-900 md:hidden pointer-events-none" />
 
-                    {/* Name + descriptor overlay */}
+                    {/* Name + quote overlay */}
                     <div className="absolute bottom-6 left-8 md:bottom-10 md:left-10 z-10 w-[80%] pointer-events-none">
                         <div className="text-[10px] uppercase tracking-[0.2em] font-black text-violet-400 mb-1">Legendary Threat</div>
                         <h2 className="text-3xl md:text-4xl font-black text-white drop-shadow-md leading-tight">{shortName}</h2>
-                        {descriptor && (
-                            <p className="text-white/70 font-medium mt-1 text-sm drop-shadow-sm leading-snug capitalize">{descriptor}</p>
+                        {villain.flavor_quote && (
+                            <p className="text-white/80 font-medium mt-1 text-sm drop-shadow-sm leading-snug italic">"{villain.flavor_quote.replace(/\*/g, '')}"</p>
                         )}
                     </div>
                     {/* Dark gradient for text readability */}
@@ -124,13 +124,6 @@ export default function VillainCard({ villain, name }: VillainProps) {
                                 <div className="text-2xl font-black text-slate-900 dark:text-white leading-none">{villain.ac ?? "?"}</div>
                             </div>
                         </div>
-
-                        {/* Flavor quote */}
-                        {villain.flavor_quote && (
-                            <p className="text-slate-500 dark:text-slate-400 italic text-sm leading-relaxed border-l-2 border-violet-400 pl-3">
-                                "{villain.flavor_quote.replace(/\*/g, '')}"
-                            </p>
-                        )}
                     </div>
 
                     {/* Attacks | Special Abilities */}

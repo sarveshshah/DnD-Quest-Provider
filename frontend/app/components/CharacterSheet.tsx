@@ -130,7 +130,7 @@ export default function CharacterSheet({ char }: CharacterProps) {
                     {/* Bottom Text Overlay */}
                     <div className="absolute bottom-6 left-8 md:bottom-10 md:left-10 z-10 w-[80%] pointer-events-none">
                         <h2 className="text-4xl md:text-5xl font-black text-white drop-shadow-md leading-tight">{char.name}</h2>
-                        <p className="text-white/80 font-medium mt-1 drop-shadow-sm leading-snug">{char.flavor_quote || "The Whispering Shadow of the Vale"}</p>
+                        <p className="text-white/80 font-medium mt-1 drop-shadow-sm leading-snug italic">"{char.flavor_quote || "The Whispering Shadow of the Vale"}"</p>
                     </div>
                     {/* Extra dark gradient for text readability */}
                     <div className="absolute inset-x-0 bottom-0 h-48 bg-gradient-to-t from-black/80 via-black/40 to-transparent pointer-events-none" />
