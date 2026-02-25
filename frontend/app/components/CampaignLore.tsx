@@ -13,6 +13,8 @@ export default function CampaignLore({ narrative, campaignPlan, terrain = "Fores
 
     const [macguffinLightbox, setMacguffinLightbox] = useState(false);
 
+    const hasCover = !!campaignPlan?.cover_image_base64;
+
     return (
         <div className="w-full flex justify-center py-8">
             {/* Macguffin lightbox */}
@@ -30,39 +32,36 @@ export default function CampaignLore({ narrative, campaignPlan, terrain = "Fores
                     />
                 </div>
             )}
-            {/* Force light mode styles by avoiding dark: classes entirely */}
-            <div className="w-full bg-white text-slate-900 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.5)] border border-slate-200 rounded-2xl overflow-hidden">
 
-                {/* Header Section with Dynamic Image Background */}
+            {/* Card */}
+            <div className="w-full bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.3)] dark:shadow-[0_4px_30px_rgba(0,0,0,0.6)] border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden transition-colors duration-300">
+
+                {/* Header — cover image or plain */}
                 <div
                     className="relative overflow-hidden flex flex-col justify-end p-8 md:p-12"
-                    style={{ minHeight: campaignPlan?.cover_image_base64 ? '450px' : 'auto' }}
+                    style={{ minHeight: hasCover ? '450px' : 'auto' }}
                 >
-                    {/* Base64 Background Image */}
-                    {campaignPlan?.cover_image_base64 && (
+                    {hasCover && (
                         <>
                             <div
                                 className="absolute inset-0 z-0 bg-cover bg-center"
                                 style={{ backgroundImage: `url(data:image/jpeg;base64,${campaignPlan.cover_image_base64})` }}
                             />
-                            {/* Darker gradient for text readability */}
                             <div className="absolute inset-0 z-0 bg-gradient-to-t from-[#0f0914]/90 via-[#0f0914]/40 to-transparent" />
                         </>
                     )}
 
                     <div className="relative z-10 w-full">
-                        <h1
-                            className={`font-serif text-5xl md:text-7xl font-extrabold leading-tight mb-8 tracking-tight ${campaignPlan?.cover_image_base64 ? 'text-white drop-shadow-md' : 'text-slate-900'}`}
-                        >
+                        <h1 className={`font-serif text-5xl md:text-7xl font-extrabold leading-tight mb-8 tracking-tight ${hasCover ? 'text-white drop-shadow-md' : 'text-slate-900 dark:text-white'}`}>
                             {narrative?.title || "Drafting Campaign..."}
                         </h1>
 
                         <div className="flex flex-wrap items-center gap-4 mb-8">
-                            <div className={`flex items-center gap-2 rounded-full px-5 py-2 text-sm font-bold font-sans ${campaignPlan?.cover_image_base64 ? 'bg-[#4c1d95]/90 text-white backdrop-blur-md border border-[#7c3aed]/30 shadow-lg' : 'bg-slate-100 text-slate-700'}`}>
+                            <div className={`flex items-center gap-2 rounded-full px-5 py-2 text-sm font-bold ${hasCover ? 'bg-[#4c1d95]/90 text-white backdrop-blur-md border border-[#7c3aed]/30 shadow-lg' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300'}`}>
                                 <span className="material-symbols-outlined !text-lg">landscape</span>
                                 {terrain}
                             </div>
-                            <div className={`flex items-center gap-2 rounded-full px-5 py-2 text-sm font-bold font-sans ${campaignPlan?.cover_image_base64 ? 'bg-[#4c1d95]/90 text-white backdrop-blur-md border border-[#7c3aed]/30 shadow-lg' : 'bg-slate-100 text-slate-700'}`}>
+                            <div className={`flex items-center gap-2 rounded-full px-5 py-2 text-sm font-bold ${hasCover ? 'bg-[#4c1d95]/90 text-white backdrop-blur-md border border-[#7c3aed]/30 shadow-lg' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300'}`}>
                                 {difficulty === 'Hard' || difficulty === 'Deadly' ? (
                                     <span className="material-symbols-outlined !text-lg text-red-400">skull</span>
                                 ) : (
@@ -73,18 +72,13 @@ export default function CampaignLore({ narrative, campaignPlan, terrain = "Fores
                         </div>
 
                         {narrative?.description && (
-                            <div
-                                className={`relative pl-6 border-l-4 text-xl italic ${campaignPlan?.cover_image_base64 ? 'border-white/40 text-white/90 font-medium' : 'border-[#7311d4]/30 text-slate-600'}`}
-                            >
+                            <div className={`relative pl-6 border-l-4 text-xl italic ${hasCover ? 'border-white/40 text-white/90 font-medium' : 'border-[#7311d4]/30 text-slate-600 dark:text-slate-400'}`}>
                                 "{narrative.description}"
                             </div>
                         )}
 
-                        {/* If no narrative description yet but there's a thought process, show it */}
                         {!narrative?.description && campaignPlan?.thought_process && (
-                            <div
-                                className={`relative pl-6 border-l-4 text-lg italic ${campaignPlan?.cover_image_base64 ? 'border-white/40 text-white/80' : 'border-[#7311d4]/30 text-slate-500'}`}
-                            >
+                            <div className={`relative pl-6 border-l-4 text-lg italic ${hasCover ? 'border-white/40 text-white/80' : 'border-[#7311d4]/30 text-slate-500 dark:text-slate-400'}`}>
                                 "The DM's quill dances across the parchment: {campaignPlan.thought_process}"
                             </div>
                         )}
@@ -102,9 +96,9 @@ export default function CampaignLore({ narrative, campaignPlan, terrain = "Fores
                             <section>
                                 <div className="flex items-center gap-4 mb-6">
                                     <span className="text-[#7311d4] font-bold text-sm uppercase tracking-[0.25em]">01. Background Lore</span>
-                                    <div className="h-px flex-1 bg-slate-200"></div>
+                                    <div className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
                                 </div>
-                                <div className="prose prose-slate max-w-none text-base leading-relaxed text-slate-800">
+                                <div className="prose prose-slate dark:prose-invert max-w-none text-base leading-relaxed text-slate-800 dark:text-slate-300">
                                     <ReactMarkdown>{narrative.background}</ReactMarkdown>
                                 </div>
                             </section>
@@ -116,9 +110,9 @@ export default function CampaignLore({ narrative, campaignPlan, terrain = "Fores
                                 <section>
                                     <div className="flex items-center gap-4 mb-6">
                                         <span className="text-[#7311d4] font-bold text-sm uppercase tracking-[0.25em]">{narrative ? "02." : "01."} Core Conflict</span>
-                                        <div className="h-px flex-1 bg-slate-200"></div>
+                                        <div className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
                                     </div>
-                                    <p className="text-lg leading-relaxed text-slate-800 font-medium">{campaignPlan.core_conflict}</p>
+                                    <p className="text-lg leading-relaxed text-slate-800 dark:text-slate-200 font-medium">{campaignPlan.core_conflict}</p>
                                 </section>
                             )}
 
@@ -126,7 +120,7 @@ export default function CampaignLore({ narrative, campaignPlan, terrain = "Fores
                                 <section>
                                     <div className="flex items-center gap-4 mb-6">
                                         <span className="text-[#7311d4] font-bold text-sm uppercase tracking-[0.25em]">{narrative ? "03." : "02."} Plot Outline</span>
-                                        <div className="h-px flex-1 bg-slate-200"></div>
+                                        <div className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
                                     </div>
                                     <ol className="space-y-5">
                                         {campaignPlan.plot_points.map((point: string, idx: number) => (
@@ -134,7 +128,7 @@ export default function CampaignLore({ narrative, campaignPlan, terrain = "Fores
                                                 <span className="flex-none text-2xl font-black text-[#7311d4]/20 group-hover:text-[#7311d4] transition-colors">
                                                     {String(idx + 1).padStart(2, '0')}
                                                 </span>
-                                                <p className="text-slate-700 text-base leading-relaxed pt-1">{point}</p>
+                                                <p className="text-slate-700 dark:text-slate-300 text-base leading-relaxed pt-1">{point}</p>
                                             </li>
                                         ))}
                                     </ol>
@@ -145,7 +139,7 @@ export default function CampaignLore({ narrative, campaignPlan, terrain = "Fores
 
                     {/* Full-width: Factions + Locations */}
                     {(campaignPlan?.factions_involved || campaignPlan?.key_locations) && (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-12 pt-4 border-t border-slate-100">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-12 pt-4 border-t border-slate-100 dark:border-slate-800">
                             {campaignPlan?.factions_involved && (
                                 <section>
                                     <div className="flex items-center gap-3 mb-6">
@@ -156,8 +150,8 @@ export default function CampaignLore({ narrative, campaignPlan, terrain = "Fores
                                             <li key={idx} className="flex items-start gap-3">
                                                 <span className="material-symbols-outlined text-[#7311d4] mt-0.5 !text-xl">shield</span>
                                                 <div>
-                                                    <span className="block font-extrabold text-slate-900">{faction.split(":")[0] || faction}</span>
-                                                    <span className="text-sm text-slate-500 mt-0.5 block leading-relaxed">{faction.split(":").slice(1).join(":") || "A powerful local organization."}</span>
+                                                    <span className="block font-extrabold text-slate-900 dark:text-slate-100">{faction.split(":")[0] || faction}</span>
+                                                    <span className="text-sm text-slate-500 dark:text-slate-400 mt-0.5 block leading-relaxed">{faction.split(":").slice(1).join(":") || "A powerful local organization."}</span>
                                                 </div>
                                             </li>
                                         ))}
@@ -174,8 +168,8 @@ export default function CampaignLore({ narrative, campaignPlan, terrain = "Fores
                                             <li key={idx} className="flex items-start gap-3">
                                                 <span className="material-symbols-outlined text-[#7311d4] mt-0.5 !text-xl">location_on</span>
                                                 <div>
-                                                    <span className="block font-extrabold text-slate-900">{loc.split(":")[0] || loc}</span>
-                                                    <span className="text-sm text-slate-500 mt-0.5 block leading-relaxed">{loc.split(":").slice(1).join(":") || "A critical location in the upcoming quest."}</span>
+                                                    <span className="block font-extrabold text-slate-900 dark:text-slate-100">{loc.split(":")[0] || loc}</span>
+                                                    <span className="text-sm text-slate-500 dark:text-slate-400 mt-0.5 block leading-relaxed">{loc.split(":").slice(1).join(":") || "A critical location in the upcoming quest."}</span>
                                                 </div>
                                             </li>
                                         ))}
@@ -185,18 +179,18 @@ export default function CampaignLore({ narrative, campaignPlan, terrain = "Fores
                         </div>
                     )}
 
-                    {/* Rewards + Macguffin — Card layout matching party card */}
+                    {/* Rewards + Macguffin — Card */}
                     {(narrative?.rewards || (campaignPlan?.macguffin_image_base64 && campaignPlan.macguffin_image_base64 !== '[GENERATED IMAGE STORED]')) && (
-                        <div className="bg-white border border-slate-200 rounded-3xl overflow-hidden flex flex-col md:flex-row shadow-[0_8px_30px_rgb(0,0,0,0.06)]">
+                        <div className="bg-white dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-3xl overflow-hidden flex flex-col md:flex-row shadow-[0_8px_30px_rgb(0,0,0,0.06)] dark:shadow-[0_8px_30px_rgba(0,0,0,0.3)]">
 
                             {/* Left: Rewards text */}
                             <div className="flex-1 p-8 md:p-10 flex flex-col justify-center gap-4">
                                 <div className="flex items-center gap-2 mb-2">
                                     <span className="material-symbols-outlined text-[#7311d4] text-xl">redeem</span>
-                                    <h3 className="font-extrabold text-slate-900 text-lg">Rewards & Hooks</h3>
+                                    <h3 className="font-extrabold text-slate-900 dark:text-white text-lg">Rewards & Hooks</h3>
                                 </div>
                                 {narrative?.rewards && (
-                                    <div className="text-slate-700 text-base prose prose-slate max-w-none">
+                                    <div className="text-slate-700 dark:text-slate-300 text-base prose prose-slate dark:prose-invert max-w-none">
                                         <ReactMarkdown>{narrative.rewards}</ReactMarkdown>
                                     </div>
                                 )}
@@ -214,8 +208,6 @@ export default function CampaignLore({ narrative, campaignPlan, terrain = "Fores
                                         alt="The Treasure"
                                         className="absolute inset-0 w-full h-full object-cover object-center group-hover/mac:scale-105 transition-transform duration-700"
                                     />
-                                    {/* Left-fade removed — replaced with stronger bottom gradient */}
-                                    {/* Bottom gradient for text */}
                                     <div className="absolute inset-x-0 bottom-0 h-56 bg-gradient-to-t from-black/95 via-black/60 to-transparent pointer-events-none" />
                                     <div className="absolute bottom-6 left-6 md:bottom-8 md:left-8 z-10 pointer-events-none w-[85%]">
                                         <p className="text-[9px] uppercase tracking-[0.2em] font-black text-violet-300 mb-1" style={{ textShadow: '0 2px 8px rgba(0,0,0,1)' }}>The Loot</p>
@@ -223,7 +215,6 @@ export default function CampaignLore({ narrative, campaignPlan, terrain = "Fores
                                             {campaignPlan.loot_concept || "Legendary Treasure"}
                                         </p>
                                     </div>
-                                    {/* Zoom hint */}
                                     <div className="absolute top-3 right-3 opacity-0 group-hover/mac:opacity-100 transition-opacity bg-black/50 rounded-full p-1.5 z-10">
                                         <span className="material-symbols-outlined !text-[18px] text-white">zoom_in</span>
                                     </div>
@@ -235,7 +226,7 @@ export default function CampaignLore({ narrative, campaignPlan, terrain = "Fores
                 </div>
 
                 {/* Footer */}
-                <div className="px-12 py-8 bg-slate-50 border-t border-slate-200 flex justify-between items-center text-xs font-black uppercase tracking-[0.2em] text-slate-400">
+                <div className="px-12 py-8 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-200 dark:border-slate-700 flex justify-between items-center text-xs font-black uppercase tracking-[0.2em] text-slate-400 dark:text-slate-500">
                     <span>Created: {new Date().toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}</span>
                     <span>Lore Block v3.1</span>
                     <span>Ref: WW-{Math.random().toString(36).substring(2, 6).toUpperCase()}-ALPHA</span>
