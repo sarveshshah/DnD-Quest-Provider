@@ -434,10 +434,10 @@ export default function Home() {
               {/* 2. Villain Card */}
               {campaignPlan?.villain_statblock && (
                 <div>
-                  <h2 className="text-2xl font-extrabold text-red-500 mb-6 border-b border-slate-200 dark:border-zinc-800 pb-4 flex items-center gap-3">
+                  {/* <h2 className="text-2xl font-extrabold text-red-500 mb-6 border-b border-slate-200 dark:border-zinc-800 pb-4 flex items-center gap-3">
                     <span className="material-symbols-outlined !text-3xl">swords</span>
                     The Primary Antagonist
-                  </h2>
+                  </h2> */}
                   <VillainCard
                     name={campaignPlan.primary_antagonist}
                     villain={campaignPlan.villain_statblock}
@@ -523,10 +523,10 @@ export default function Home() {
               {/* 3. The Party Sheet (Or Initial Suggestions) */}
               {partyDetails?.characters ? (
                 <div>
-                  <h2 className="text-2xl font-extrabold text-rose-500 mb-6 border-b border-slate-200 dark:border-zinc-800 pb-4 flex items-center gap-3">
+                  {/* <h2 className="text-2xl font-extrabold text-rose-500 mb-6 border-b border-slate-200 dark:border-zinc-800 pb-4 flex items-center gap-3">
                     <span className="material-symbols-outlined !text-3xl">group</span>
                     {resolvedPartyName || partyName || "The Heroes"}
-                  </h2>
+                  </h2> */}
                   {/* Character Carousel */}
                   {(() => {
                     const chars = partyDetails.characters;

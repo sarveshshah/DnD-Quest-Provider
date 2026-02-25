@@ -72,7 +72,7 @@ export default function CampaignLore({ narrative, campaignPlan, terrain = "Fores
 
                 {/* Title / badges / description — always below the image */}
                 <div className="p-8 md:p-12">
-                    <h1 className="font-serif text-5xl md:text-7xl font-extrabold leading-tight mb-8 tracking-tight text-slate-900 dark:text-white">
+                    <h1 className="font-inter text-5xl md:text-7xl font-extrabold leading-tight mb-8 tracking-tight text-slate-900 dark:text-white">
                         {narrative?.title || "Drafting Campaign..."}
                     </h1>
 
@@ -249,11 +249,11 @@ export default function CampaignLore({ narrative, campaignPlan, terrain = "Fores
                 </div>
 
                 {/* Footer */}
-                <div className="px-12 py-8 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-200 dark:border-slate-700 flex justify-between items-center text-xs font-black uppercase tracking-[0.2em] text-slate-400 dark:text-slate-500">
+                {/* <div className="px-12 py-8 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-200 dark:border-slate-700 flex justify-between items-center text-xs font-black uppercase tracking-[0.2em] text-slate-400 dark:text-slate-500">
                     <span>Created: {new Date().toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}</span>
                     <span>Lore Block v3.1</span>
                     <span>Ref: WW-{Math.random().toString(36).substring(2, 6).toUpperCase()}-ALPHA</span>
-                </div>
+                </div> */}
             </div>
         </div>
     );
