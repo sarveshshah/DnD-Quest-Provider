@@ -299,9 +299,11 @@ export default function Home() {
       />
 
       {/* Main Content Area */}
-      <div className={`flex-1 flex flex-col items-center px-4 w-full transition-all ${(status || narrative || campaignPlan || partyDetails || hitlData)
+      <div className={`flex-1 flex flex-col items-center px-4 w-full transition-all ${status === "Generation Complete!"
         ? 'pt-24 pb-32'
-        : 'justify-center min-h-screen'
+        : (status || narrative || campaignPlan || partyDetails || hitlData)
+          ? 'pt-24 pb-8'
+          : 'justify-center min-h-screen'
         }`}>
 
         {/* Landing title — only when no output */}
@@ -314,17 +316,19 @@ export default function Home() {
           </div>
         )}
 
-        {/* Generate Form — centered on landing, floating bar when output exists */}
+        {/* Generate Form — hidden during generation, floating bar after complete */}
         <form
           onSubmit={handleSubmit}
-          className={`w-full flex flex-col gap-6 transition-all duration-500 ${(status || narrative || campaignPlan || partyDetails || hitlData)
-            ? 'fixed bottom-0 left-0 right-0 z-50 px-4 pb-4 pt-2 max-w-3xl mx-auto'
-            : 'max-w-6xl mb-16'
+          className={`w-full flex flex-col gap-6 transition-all duration-500 ${status && status !== "Generation Complete!"
+              ? 'hidden'
+              : status === "Generation Complete!"
+                ? 'fixed bottom-0 left-0 right-0 z-50 px-4 pb-4 pt-2 max-w-3xl mx-auto'
+                : 'max-w-6xl mb-16'
             }`}
         >
 
           {/* 1. Primary Prompt Input */}
-          <div className={`bg-white dark:bg-zinc-900/80 p-2.5 rounded-2xl border border-slate-200 dark:border-zinc-800 flex items-center focus-within:ring-2 focus-within:ring-rose-500/50 focus-within:border-rose-500/50 transition-all ${(status || narrative || campaignPlan || partyDetails || hitlData)
+          <div className={`bg-white dark:bg-zinc-900/80 p-2.5 rounded-2xl border border-slate-200 dark:border-zinc-800 flex items-center focus-within:ring-2 focus-within:ring-rose-500/50 focus-within:border-rose-500/50 transition-all ${status === "Generation Complete!"
             ? 'shadow-[0_-4px_30px_rgba(0,0,0,0.12)] dark:shadow-[0_-4px_30px_rgba(0,0,0,0.5)] backdrop-blur-xl bg-white/95 dark:bg-zinc-900/95'
             : 'shadow-lg dark:shadow-[0_4px_30px_rgba(0,0,0,0.4)]'
             }`}>
@@ -429,9 +433,10 @@ export default function Home() {
         {/* Only show the container if there is actually output or a loading status */}
         {(status || narrative || campaignPlan || partyDetails || hitlData) && (
           <div className="w-full max-w-6xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-3xl p-6 md:p-10 shadow-xl dark:shadow-[0_8px_30px_rgba(0,0,0,0.5)] min-h-[400px]">
-            {/* Status Tracker */}
+
+            {/* Floating Status Tracker */}
             {status && status !== "Generation Complete!" && (
-              <div className="text-slate-400 dark:text-zinc-500 text-xs mb-6 pb-6 border-b border-slate-100 dark:border-zinc-800 flex items-center gap-2">
+              <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-xl text-slate-600 dark:text-zinc-400 text-xs px-5 py-2.5 rounded-full border border-slate-200 dark:border-zinc-700 shadow-lg dark:shadow-[0_4px_20px_rgba(0,0,0,0.4)] flex items-center gap-2 animate-pulse">
                 <span className="material-symbols-outlined animate-spin-slow !text-sm">hourglass_top</span>
                 <span>{status}</span>
               </div>
@@ -620,8 +625,8 @@ export default function Home() {
                 />
               )}
 
-              {/* 5. Export Panel */}
-              {(narrative || campaignPlan || partyDetails) && (
+              {/* 5. Export Panel — only after generation is fully complete */}
+              {status === "Generation Complete!" && (narrative || campaignPlan || partyDetails) && (
                 <ExportPanel
                   campaignPlan={campaignPlan}
                   partyDetails={partyDetails}
