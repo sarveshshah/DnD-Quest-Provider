@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { buildExportPdfHtml } from "./exportPdfTemplate";
 
 interface ExportPanelProps {
@@ -9,6 +10,8 @@ interface ExportPanelProps {
 }
 
 export default function ExportPanel({ campaignPlan, partyDetails, narrative, terrain, difficulty }: ExportPanelProps) {
+    const [isExporting, setIsExporting] = useState(false);
+
     const stripMarkdown = (value: any) => {
         if (value === null || value === undefined) return "";
         return String(value)
@@ -609,6 +612,9 @@ export default function ExportPanel({ campaignPlan, partyDetails, narrative, ter
     };
 
     const handleSmartPdf = async () => {
+        if (isExporting) return;
+        setIsExporting(true);
+
         const payload = {
             campaignPlan,
             partyDetails,
@@ -658,23 +664,32 @@ export default function ExportPanel({ campaignPlan, partyDetails, narrative, ter
             const message = err instanceof Error ? err.message : String(err);
             console.error("Backend visual PDF export failed:", err);
             alert(`Smart PDF export failed: ${message}`);
+        } finally {
+            setIsExporting(false);
         }
     };
 
     if (!campaignPlan && !partyDetails && !narrative) return null;
 
     return (
-        <div className="p-4 bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl mt-8 print:hidden">
-            <div className="flex flex-col items-center gap-3 text-center">
-                <h3 className="text-slate-600 dark:text-zinc-300 font-bold">Export Campaign</h3>
-                <p className="text-xs text-slate-500 dark:text-zinc-400">Best quality layout for sharing and printing.</p>
-                <button
-                    onClick={handleSmartPdf}
-                    className="flex items-center gap-2 bg-sky-50 dark:bg-sky-900/40 hover:bg-sky-100 dark:hover:bg-sky-800 text-sky-700 dark:text-sky-300 font-bold py-2.5 px-7 rounded-lg border border-sky-200 dark:border-sky-800/50 transition-colors"
+        <div className="fixed z-50 right-4 bottom-20 print:hidden">
+            <button
+                onClick={handleSmartPdf}
+                disabled={isExporting}
+                className="group flex items-center justify-center bg-sky-50 dark:bg-sky-900/40 hover:bg-sky-100 dark:hover:bg-sky-800 text-sky-700 dark:text-sky-300 font-bold h-12 px-3 rounded-full border border-sky-200 dark:border-sky-800/50 transition-all duration-300 ease-out shadow-lg disabled:opacity-70 disabled:cursor-not-allowed"
+                title="Download campaign PDF"
+                aria-label="Download campaign PDF"
+            >
+                <span>🖨️</span>
+                <span
+                    className={`overflow-hidden whitespace-nowrap transition-all ${isExporting
+                        ? "ml-2 max-w-[180px] opacity-100 duration-400 ease-out"
+                        : "ml-2 max-w-[180px] opacity-100 duration-400 ease-out md:ml-0 md:max-w-0 md:opacity-0 md:group-hover:ml-2 md:group-hover:max-w-[180px] md:group-hover:opacity-100 md:group-focus-within:ml-2 md:group-focus-within:max-w-[180px] md:group-focus-within:opacity-100"
+                        }`}
                 >
-                    <span>🖨️</span> Download PDF
-                </button>
-            </div>
+                    {isExporting ? "Generating PDF..." : "Download PDF"}
+                </span>
+            </button>
         </div>
     );
 }

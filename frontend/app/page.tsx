@@ -18,6 +18,7 @@ export default function Home() {
   const [narrative, setNarrative] = useState<any>(null);
   const [threadId, setThreadId] = useState<string | null>(null);
   const [charIndex, setCharIndex] = useState(0);
+  const [charSlideDirection, setCharSlideDirection] = useState<1 | -1>(1);
   const [groupLightbox, setGroupLightbox] = useState(false);
 
   // Filter out generic AI-generated party names that aren't meaningful
@@ -322,21 +323,31 @@ export default function Home() {
       {/* Fixed left-side icon buttons: New Campaign + Hamburger stacked */}
       <div className="fixed top-6 left-6 z-40 flex flex-col gap-2">
         {/* New Campaign icon */}
-        <button
-          onClick={() => handleSelectThread("")}
-          title="New Campaign"
-          className="h-12 w-12 rounded-full bg-rose-600 hover:bg-rose-500 border border-rose-700 shadow-md text-white transition-colors inline-flex items-center justify-center leading-none"
-        >
-          <span className="material-symbols-outlined !text-xl">add</span>
-        </button>
+        <div className="relative group/newCampaign">
+          <button
+            onClick={() => handleSelectThread("")}
+            title="New Campaign"
+            className="h-12 w-12 rounded-full bg-rose-600 hover:bg-rose-500 border border-rose-700 shadow-md text-white transition-all duration-300 ease-out inline-flex items-center justify-center leading-none"
+          >
+            <span className="material-symbols-outlined !text-xl">add</span>
+          </button>
+          <span className="pointer-events-none absolute left-[calc(100%+8px)] top-1/2 -translate-y-1/2 whitespace-nowrap rounded-full bg-rose-600 text-white text-sm font-semibold px-3 py-1.5 shadow-md border border-rose-700/70 opacity-0 scale-95 transition-all duration-300 ease-out group-hover/newCampaign:opacity-100 group-hover/newCampaign:scale-100 group-focus-within/newCampaign:opacity-100 group-focus-within/newCampaign:scale-100">
+            New Campaign
+          </span>
+        </div>
         {/* Hamburger / Sidebar toggle */}
-        <button
-          onClick={() => setIsSidebarOpen(true)}
-          title="Campaign History"
-          className="h-12 w-12 rounded-full bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 shadow-md text-slate-700 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-700 transition-colors inline-flex items-center justify-center leading-none"
-        >
-          <span className="material-symbols-outlined !text-xl">menu</span>
-        </button>
+        <div className="relative group/history">
+          <button
+            onClick={() => setIsSidebarOpen(true)}
+            title="Campaign History"
+            className="h-12 w-12 rounded-full bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 shadow-md text-slate-700 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-700 transition-all duration-300 ease-out inline-flex items-center justify-center leading-none"
+          >
+            <span className="material-symbols-outlined !text-xl">menu</span>
+          </button>
+          <span className="pointer-events-none absolute left-[calc(100%+8px)] top-1/2 -translate-y-1/2 whitespace-nowrap rounded-full bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-300 text-sm font-semibold px-3 py-1.5 shadow-md border border-slate-200 dark:border-zinc-700 opacity-0 scale-95 transition-all duration-300 ease-out group-hover/history:opacity-100 group-hover/history:scale-100 group-focus-within/history:opacity-100 group-focus-within/history:scale-100">
+            Previous Campaigns
+          </span>
+        </div>
       </div>
 
       {/* Sidebar Overlay and Component */}
@@ -607,18 +618,22 @@ export default function Home() {
         {/* Reopen chat control — only when floating chat is closed */}
         {status === "Generation Complete!" && !isChatboxOpen && (
           <div className="fixed bottom-4 right-4 z-50">
-            <button
-              type="button"
-              onClick={() => setIsChatboxOpen(true)}
-              className="h-14 pl-2.5 pr-4 rounded-full bg-rose-600 hover:bg-rose-500 shadow-lg border border-rose-700/50 transition-colors flex items-center gap-3"
-              title="Open chat"
-              aria-label="Ask Oracle"
-            >
-              <span className="h-10 w-10 rounded-full bg-white flex items-center justify-center">
-                <img src="/favicon.png" alt="" className="h-6 w-6 object-contain" />
+            <div className="relative group/newChat">
+              <button
+                type="button"
+                onClick={() => setIsChatboxOpen(true)}
+                className="h-14 w-14 rounded-full bg-rose-600 hover:bg-rose-500 shadow-lg border border-rose-700/50 transition-all duration-300 ease-out inline-flex items-center justify-center"
+                title="Open chat"
+                aria-label="Ask Oracle"
+              >
+                <span className="h-10 w-10 rounded-full bg-white flex items-center justify-center">
+                  <img src="/favicon.png" alt="" className="h-6 w-6 object-contain" />
+                </span>
+              </button>
+              <span className="pointer-events-none absolute right-[calc(100%+8px)] top-1/2 -translate-y-1/2 whitespace-nowrap rounded-full bg-rose-600 text-white text-sm font-semibold px-3 py-1.5 shadow-md border border-rose-700/70 opacity-0 scale-95 transition-all duration-300 ease-out group-hover/newChat:opacity-100 group-hover/newChat:scale-100 group-focus-within/newChat:opacity-100 group-focus-within/newChat:scale-100">
+                Ask the Oracle
               </span>
-              <span className="text-sm font-semibold text-white">Ask Oracle</span>
-            </button>
+            </div>
           </div>
         )}
 
@@ -751,8 +766,14 @@ export default function Home() {
                     const chars = partyDetails.characters;
                     const total = chars.length;
                     const idx = Math.min(charIndex, total - 1);
-                    const prev = () => setCharIndex(i => (i - 1 + total) % total);
-                    const next = () => setCharIndex(i => (i + 1) % total);
+                    const prev = () => {
+                      setCharSlideDirection(-1);
+                      setCharIndex(i => (i - 1 + total) % total);
+                    };
+                    const next = () => {
+                      setCharSlideDirection(1);
+                      setCharIndex(i => (i + 1) % total);
+                    };
                     return (
                       <div className="relative">
                         {/* Navigation arrows */}
@@ -774,7 +795,12 @@ export default function Home() {
                         )}
 
                         {/* Active character */}
-                        <CharacterSheet key={idx} char={chars[idx]} />
+                        <div
+                          key={idx}
+                          className={`character-carousel-stage ${charSlideDirection > 0 ? "character-carousel-next" : "character-carousel-prev"}`}
+                        >
+                          <CharacterSheet char={chars[idx]} />
+                        </div>
 
                         {/* Dot indicators */}
                         {total > 1 && (
@@ -782,7 +808,11 @@ export default function Home() {
                             {chars.map((_: any, i: number) => (
                               <button
                                 key={i}
-                                onClick={() => setCharIndex(i)}
+                                onClick={() => {
+                                  if (i === idx) return;
+                                  setCharSlideDirection(i > idx ? 1 : -1);
+                                  setCharIndex(i);
+                                }}
                                 className={`rounded-full transition-all ${i === idx
                                   ? 'w-6 h-2 bg-rose-500'
                                   : 'w-2 h-2 bg-slate-300 dark:bg-zinc-600 hover:bg-rose-300'

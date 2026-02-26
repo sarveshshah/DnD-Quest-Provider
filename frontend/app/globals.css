@@ -41,6 +41,49 @@ body {
   white-space: nowrap !important;
 }
 
+.character-carousel-stage {
+  will-change: transform, opacity;
+}
+
+@keyframes character-slide-next {
+  from {
+    opacity: 0;
+    transform: translate3d(18px, 0, 0) scale(0.995);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes character-slide-prev {
+  from {
+    opacity: 0;
+    transform: translate3d(-18px, 0, 0) scale(0.995);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+.character-carousel-next {
+  animation: character-slide-next 360ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.character-carousel-prev {
+  animation: character-slide-prev 360ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .character-carousel-next,
+  .character-carousel-prev {
+    animation: none;
+  }
+}
+
 @media print {
   @page {
     size: A4;

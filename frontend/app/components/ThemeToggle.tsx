@@ -27,9 +27,13 @@ export default function ThemeToggle() {
     return (
         <button
             onClick={toggleTheme}
-            className="fixed top-6 right-8 z-50 h-12 w-12 rounded-full bg-slate-200 dark:bg-zinc-800 text-slate-800 dark:text-zinc-200 hover:bg-slate-300 dark:hover:bg-zinc-700 transition-colors shadow-md inline-flex items-center justify-center leading-none"
+            className="group fixed top-6 right-8 z-50 h-12 px-3 rounded-full bg-slate-200 dark:bg-zinc-800 text-slate-800 dark:text-zinc-200 hover:bg-slate-300 dark:hover:bg-zinc-700 transition-all duration-300 ease-out shadow-md inline-flex items-center justify-center leading-none"
             title="Toggle Theme"
+            aria-label="Toggle Theme"
         >
+            <span className="overflow-hidden whitespace-nowrap text-sm font-semibold transition-all duration-300 ease-out max-w-0 opacity-0 mr-0 group-hover:max-w-[140px] group-hover:opacity-100 group-hover:mr-2 group-focus-visible:max-w-[140px] group-focus-visible:opacity-100 group-focus-visible:mr-2">
+                {theme === "light" ? "Dark Mode" : "Light Mode"}
+            </span>
             <span className="material-symbols-outlined !text-xl">
                 {theme === "light" ? "dark_mode" : "light_mode"}
             </span>
