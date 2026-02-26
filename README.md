@@ -177,31 +177,6 @@ Main routes exposed by FastAPI (`main.py`):
 
 ---
 
-## Testing
-
-### MCP package tests
-
-```bash
-cd dnd-mcp
-python run_tests.py
-```
-
-or:
-
-```bash
-cd dnd-mcp
-pytest tests -q
-```
-
-### Frontend lint
-
-```bash
-cd frontend
-npm run lint
-```
-
----
-
 ## Troubleshooting
 
 ### `POST /generate` fails or stalls
