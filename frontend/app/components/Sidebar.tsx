@@ -11,6 +11,7 @@ interface Thread {
 interface SidebarProps {
     onSelectThread: (threadId: string) => void;
     currentThreadId: string | null;
+    pendingThread?: { name: string; createdAt: string } | null;
     isOpen: boolean;
     onClose: () => void;
 }
@@ -31,7 +32,7 @@ function formatDate(isoString: string): string {
     });
 }
 
-export default function Sidebar({ onSelectThread, currentThreadId, isOpen, onClose }: SidebarProps) {
+export default function Sidebar({ onSelectThread, currentThreadId, pendingThread, isOpen, onClose }: SidebarProps) {
     const [threads, setThreads] = useState<Thread[]>([]);
     const [loading, setLoading] = useState(true);
     const [showArchived, setShowArchived] = useState(false);
@@ -136,6 +137,18 @@ export default function Sidebar({ onSelectThread, currentThreadId, isOpen, onClo
                                     Recent Campaigns
                                 </div>
                                 <div className="space-y-1">
+                                    {pendingThread && (
+                                        <div className="w-full text-left px-4 py-3.5 rounded-xl text-sm pr-10 bg-rose-50/80 dark:bg-zinc-800/80 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-500/30 shadow-sm">
+                                            <div className="font-bold truncate flex items-center gap-2">
+                                                <span className="material-symbols-outlined animate-spin-slow !text-[14px]">hourglass_top</span>
+                                                <span>{pendingThread.name || 'New Campaign'}</span>
+                                            </div>
+                                            <div className="text-xs text-slate-400 dark:text-zinc-500 mt-1.5 flex items-center gap-1.5 opacity-80">
+                                                <span className="material-symbols-outlined !text-[12px]">schedule</span>
+                                                {formatDate(pendingThread.createdAt)}
+                                            </div>
+                                        </div>
+                                    )}
                                     {active.length === 0 ? (
                                         <p className="text-slate-400 dark:text-zinc-600 text-xs italic px-2 py-3">No active campaigns.</p>
                                     ) : (

@@ -7,9 +7,10 @@ interface ExportPanelProps {
     narrative: any;
     terrain?: string;
     difficulty?: string;
+    isHidden?: boolean;
 }
 
-export default function ExportPanel({ campaignPlan, partyDetails, narrative, terrain, difficulty }: ExportPanelProps) {
+export default function ExportPanel({ campaignPlan, partyDetails, narrative, terrain, difficulty, isHidden = false }: ExportPanelProps) {
     const [isExporting, setIsExporting] = useState(false);
 
     const stripMarkdown = (value: any) => {
@@ -672,7 +673,7 @@ export default function ExportPanel({ campaignPlan, partyDetails, narrative, ter
     if (!campaignPlan && !partyDetails && !narrative) return null;
 
     return (
-        <div className="fixed z-50 right-4 bottom-20 print:hidden">
+        <div className={`fixed z-50 right-4 bottom-20 print:hidden transition-all duration-300 ease-out ${isHidden ? "opacity-0 pointer-events-none translate-y-2" : "opacity-100 pointer-events-auto translate-y-0"}`}>
             <button
                 onClick={handleSmartPdf}
                 disabled={isExporting}
