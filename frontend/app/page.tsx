@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
 import CampaignLore from "./components/CampaignLore";
 import CharacterSheet from "./components/CharacterSheet";
 import ExportPanel from "./components/ExportPanel";
@@ -476,7 +477,16 @@ export default function Home() {
                       ? 'bg-rose-600 text-white rounded-br-md'
                       : 'bg-slate-100 dark:bg-zinc-800 text-slate-800 dark:text-slate-200 rounded-bl-md'
                       }`}>
-                      {msg.content}
+                      <div
+                        className={`prose prose-sm max-w-none break-words [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 ${msg.role === 'user'
+                          ? 'prose-invert prose-p:text-white prose-strong:text-white prose-code:text-white prose-headings:text-white'
+                          : 'dark:prose-invert prose-p:text-slate-800 dark:prose-p:text-slate-200 prose-strong:text-slate-900 dark:prose-strong:text-slate-100 prose-code:text-slate-900 dark:prose-code:text-slate-100 prose-headings:text-slate-900 dark:prose-headings:text-slate-100'
+                          }`}
+                      >
+                        <ReactMarkdown>
+                          {msg.content}
+                        </ReactMarkdown>
+                      </div>
                     </div>
                   </div>
                 ))}
