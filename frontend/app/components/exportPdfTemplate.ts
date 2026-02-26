@@ -124,6 +124,19 @@ export function buildExportPdfHtml(payload: ExportPayload): string {
   const generatedAt = text(payload?.createdAt ? new Date(payload.createdAt).toLocaleString() : new Date().toLocaleString());
   const terrain = text(payload?.terrain || campaignPlan?.terrain || narrative?.terrain || "Unknown");
   const difficulty = text(payload?.difficulty || campaignPlan?.difficulty || narrative?.difficulty || "Medium");
+  const rawPartyName = stripMarkdown(String(partyDetails?.party_name || campaignPlan?.party_name || "")).trim();
+  const genericPartyNames = new Set([
+    "suggested adventurers",
+    "the suggested adventurers",
+    "the heroes",
+    "adventurers",
+    "party",
+    "the adventuring party",
+    "adventuring party",
+  ]);
+  const resolvedPartyName = text(
+    rawPartyName && !genericPartyNames.has(rawPartyName.toLowerCase()) ? rawPartyName : "The Heroes",
+  );
 
   const coverImage = imageSrcFromBase64(narrative?.cover_image_base64 || campaignPlan?.cover_image_base64);
   const macguffinImage = imageSrcFromBase64(campaignPlan?.macguffin_image_base64);
@@ -173,8 +186,13 @@ export function buildExportPdfHtml(payload: ExportPayload): string {
   );
   const partyDensity = densityClass(
     "party",
-    densityFor(contentLength(partyDetails?.party_name, terrain, difficulty) + listLength(characters), 700, 1200),
+    densityFor(
+      contentLength(partyDetails?.party_name, terrain, difficulty) + listLength(characters) + characters.length * 180,
+      900,
+      1400,
+    ),
   );
+  const useContainedPartyImage = characters.length >= 5;
   const partyRoster = characters
     .map((char: any) => {
       const charName = text(char?.name || "Unnamed Hero");
@@ -441,8 +459,7 @@ export function buildExportPdfHtml(payload: ExportPayload): string {
       padding: 0;
     }
 
-    .party-stage .party-image,
-    .party-stage img {
+    .party-stage .party-image-main {
       width: 100%;
       height: 100%;
       object-fit: cover;
@@ -450,6 +467,25 @@ export function buildExportPdfHtml(payload: ExportPayload): string {
       display: block;
       border-top: 0;
       max-width: none;
+      position: relative;
+      z-index: 1;
+    }
+
+    .party-stage .party-image-backdrop {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: center;
+      display: block;
+      border-top: 0;
+      max-width: none;
+      transform: scale(1.08);
+      filter: blur(14px);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 220ms ease;
     }
 
     .party-stage::after {
@@ -1373,6 +1409,28 @@ export function buildExportPdfHtml(payload: ExportPayload): string {
         font-size: 14px;
       }
 
+      .party-page.party-contained .party-stage .party-image,
+      .party-page.party-contained .party-stage .party-image-main {
+        object-fit: contain;
+        object-position: center center;
+        background: #0f172a;
+      }
+
+      .party-page.party-contained .party-stage .party-image-backdrop {
+        opacity: 0.62;
+      }
+
+      .party-page.party-dense-1 .party-stage .party-image,
+      .party-page.party-dense-1 .party-stage .party-image-main {
+        object-fit: contain;
+        object-position: center center;
+        background: #0f172a;
+      }
+
+      .party-page.party-dense-1 .party-stage .party-image-backdrop {
+        opacity: 0.4;
+      }
+
       .party-page.party-dense-1 .party-roster li span {
         font-size: 12px;
       }
@@ -1385,6 +1443,16 @@ export function buildExportPdfHtml(payload: ExportPayload): string {
       .party-page.party-dense-2 .party-attr span,
       .party-page.party-dense-2 .party-roster li strong {
         font-size: 13px;
+      }
+
+      .party-page.party-dense-2 .party-stage .party-image-main {
+        object-fit: contain;
+        object-position: center center;
+        background: #0f172a;
+      }
+
+      .party-page.party-dense-2 .party-stage .party-image-backdrop {
+        opacity: 0.5;
       }
 
       .party-page.party-dense-2 .party-roster li span {
@@ -1525,15 +1593,16 @@ export function buildExportPdfHtml(payload: ExportPayload): string {
     ` : ""}
 
     ${groupImage ? `
-      <section class="sheet page-break card-surface party-page ${partyDensity}">
-        <div class="section-title tight"><h2>Adventuring Party</h2></div>
+      <section class="sheet page-break card-surface party-page ${[partyDensity, useContainedPartyImage ? "party-contained" : ""].filter(Boolean).join(" ")}">
+        <div class="section-title tight"><h2>${resolvedPartyName}</h2></div>
         <div class="party-full">
           <div class="party-stage">
-            <img class="party-image" src="${groupImage}" alt="Party Portrait" />
+            <img class="party-image party-image-backdrop" src="${groupImage}" alt="" aria-hidden="true" />
+            <img class="party-image party-image-main" src="${groupImage}" alt="Party Portrait" />
           </div>
           <div class="party-footer">
             <div class="party-attrs">
-              <div class="party-attr"><strong>Party</strong><span>${text(partyDetails?.party_name)}</span></div>
+              <div class="party-attr"><strong>Party</strong><span>${resolvedPartyName}</span></div>
               <div class="party-attr"><strong>Members</strong><span>${characters.length || 0}</span></div>
               <div class="party-attr"><strong>Terrain</strong><span>${terrain}</span></div>
               <div class="party-attr"><strong>Difficulty</strong><span>${difficulty}</span></div>
