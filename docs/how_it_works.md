@@ -201,6 +201,84 @@ Writes:
 
 ## 5) Graph Wiring & Routing Logic
 
+### 5.1 LangGraph State Graph (Mermaid)
+
+```mermaid
+flowchart TD
+   START([START]) --> PlannerNode[PlannerNode]
+
+   PlannerNode -->|interrupt_after| HITL{HITL Pause: plan review}
+   HITL -->|approve or resume| PartyCreationNode[PartyCreationNode]
+   HITL -->|edit request updates requirements| PlannerNode
+
+   PartyCreationNode -->|AI message has tool_calls| MCPToolNode[MCPToolNode]
+   MCPToolNode --> PartyCreationNode
+
+   PartyCreationNode -->|no pending tools| RouteNext[route_next]
+   RouteNext -->|first run or story/title changed| CharacterPortraitNode[CharacterPortraitNode]
+   RouteNext -->|character-only edit| END([END])
+
+   CharacterPortraitNode -->|first run or story/title changed| NarrativeWriterNode[NarrativeWriterNode]
+   CharacterPortraitNode -->|character-only edit| END
+
+   NarrativeWriterNode --> END
+
+   ChatEntry[POST threads chat endpoint] --> ChatNode[ChatNode]
+   ChatNode --> END
+```
+
+### 5.2 Reading the graph
+
+- `PlannerNode` is the required entry point for campaign generation.
+- `MCPToolNode <-> PartyCreationNode` is an iterative tool-execution loop until no tool calls remain.
+- `route_next` is a routing helper node used to satisfy conditional edge wiring.
+- `ChatNode` is not part of the normal generate pipeline; it is entered via the chat API route for existing threads.
+
+### 5.3 Frontend-Backend SSE Sequence (Mermaid)
+
+```mermaid
+sequenceDiagram
+   participant U as User
+   participant FE as React Frontend
+   participant API as FastAPI main.py
+   participant LG as LangGraph dnd.py
+   participant MCP as MCP Server
+   participant DB as SQLite Checkpoints
+
+   U->>FE: Submit campaign form
+   FE->>API: POST /generate (prompt, terrain, difficulty, requirements)
+   API->>LG: compile + astream_events(initial_state, thread_id)
+   API->>FE: event: thread_id
+
+   LG->>LG: Run PlannerNode
+   API->>FE: event: plan
+   API->>FE: event: status
+   LG->>DB: checkpoint state
+   API->>FE: event: hitl (pause after planner)
+
+   U->>FE: Approve or edit
+   FE->>API: POST /generate (thread_id, resume_action)
+   API->>LG: resume from checkpoint
+
+   alt PartyCreation needs tools
+      LG->>MCP: Execute tool calls via MCPToolNode
+      MCP-->>LG: Tool results
+   end
+
+   API->>FE: event: party
+   LG->>LG: Run CharacterPortraitNode
+   LG->>LG: Run NarrativeWriterNode
+   API->>FE: event: narrative
+   LG->>DB: checkpoint final state
+   API->>FE: event: done
+
+   U->>FE: Ask follow-up question
+   FE->>API: POST /threads/{thread_id}/chat
+   API->>LG: chat_node with thread context
+   LG->>DB: save chat_messages
+   API-->>FE: response + updated chat history
+```
+
 Registered nodes:
 
 - `PlannerNode`
