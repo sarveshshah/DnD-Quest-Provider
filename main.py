@@ -1,6 +1,8 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 import uvicorn
+import importlib
 
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
@@ -12,6 +14,7 @@ import sqlite3
 import os
 
 from dnd import campaign_graph as app_graph, mcp_server_session, research_model, DynamicHitlActions, PartyDetails
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 app = FastAPI()
 
@@ -38,6 +41,11 @@ class GenerateRequest(BaseModel):
     resume_action: str | None = None
     party_name: str | None = None
     party_size: int | None = 4
+
+
+class PdfExportRequest(BaseModel):
+    html: str
+    file_name: str | None = "campaign_export"
 
 @app.get("/threads")
 async def get_threads():
@@ -197,8 +205,6 @@ async def get_thread_data(thread_id: str):
     }
     
     return history_data
-
-from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 class ChatRequest(BaseModel):
     message: str
@@ -379,6 +385,64 @@ async def generate_quest(req: GenerateRequest):
                     }
                     
     return EventSourceResponse(event_generator())
+
+
+@app.post("/export/pdf")
+async def export_pdf(req: PdfExportRequest):
+    html = (req.html or "").strip()
+    if not html:
+        raise HTTPException(status_code=400, detail="Missing HTML payload for PDF export")
+
+    try:
+        module_name = "playwright" + ".async_api"
+        async_playwright = importlib.import_module(module_name).async_playwright
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="Playwright is not installed on the backend environment"
+        ) from exc
+
+    safe_name = (req.file_name or "campaign_export").strip() or "campaign_export"
+    safe_name = "".join(ch for ch in safe_name if ch.isalnum() or ch in ("-", "_", " ")).strip()[:80]
+    if not safe_name:
+        safe_name = "campaign_export"
+
+    try:
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            page = await browser.new_page()
+            await page.set_content(html, wait_until="networkidle")
+
+            await page.evaluate(
+                """
+                async () => {
+                  const images = Array.from(document.images || []);
+                  await Promise.all(images.map((img) => {
+                    if (img.complete) return Promise.resolve();
+                    return new Promise((resolve) => {
+                      img.addEventListener('load', resolve, { once: true });
+                      img.addEventListener('error', resolve, { once: true });
+                    });
+                  }));
+                }
+                """
+            )
+
+            pdf_bytes = await page.pdf(
+                format="A4",
+                print_background=True,
+                prefer_css_page_size=True,
+                margin={"top": "12mm", "right": "12mm", "bottom": "12mm", "left": "12mm"},
+            )
+            await browser.close()
+
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{safe_name}.pdf"'}
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"PDF export failed: {exc}") from exc
 
 if __name__ == "__main__":
     uvicorn.run(app, host = "0.0.0.0", port = 8001, reload = True)

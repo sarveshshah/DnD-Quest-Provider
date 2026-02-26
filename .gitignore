@@ -15,3 +15,4 @@ logs/dnd_mcp_server.log
 test_graph.py
 public/campaign_images
 db/state.db
+node_modules/
