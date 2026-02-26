@@ -1,105 +1,136 @@
 export type ExportPayload = {
-    campaignPlan: any;
-    partyDetails: any;
-    narrative: any;
-    title?: string;
-    createdAt?: string;
+  campaignPlan: any;
+  partyDetails: any;
+  narrative: any;
+  terrain?: string;
+  difficulty?: string;
+  title?: string;
+  createdAt?: string;
 };
 
 const stripMarkdown = (value: any) => {
-    if (value === null || value === undefined) return "";
-    return String(value)
-        .replace(/```[\s\S]*?```/g, (match) => match.replace(/```/g, ""))
-        .replace(/`([^`]+)`/g, "$1")
-        .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
-        .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
-        .replace(/^\s{0,3}#{1,6}\s+/gm, "")
-        .replace(/^\s*[-*+]\s+/gm, "")
-        .replace(/^\s*\d+\.\s+/gm, "")
-        .replace(/^\s*>\s?/gm, "")
-        .replace(/\*\*([^*]+)\*\*/g, "$1")
-        .replace(/__([^_]+)__/g, "$1")
-        .replace(/\*([^*]+)\*/g, "$1")
-        .replace(/_([^_]+)_/g, "$1")
-        .replace(/~~([^~]+)~~/g, "$1")
-        .replace(/\|/g, " ")
-        .replace(/\n{3,}/g, "\n\n")
-        .trim();
+  if (value === null || value === undefined) return "";
+  return String(value)
+    .replace(/```[\s\S]*?```/g, (match) => match.replace(/```/g, ""))
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/^\s{0,3}#{1,6}\s+/gm, "")
+    .replace(/^\s*[-*+]\s+/gm, "")
+    .replace(/^\s*\d+\.\s+/gm, "")
+    .replace(/^\s*>\s?/gm, "")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/__([^_]+)__/g, "$1")
+    .replace(/\*([^*]+)\*/g, "$1")
+    .replace(/_([^_]+)_/g, "$1")
+    .replace(/~~([^~]+)~~/g, "$1")
+    .replace(/\|/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 };
 
 const escapeHtml = (value: any) => {
-    if (value === null || value === undefined) return "";
-    return String(value)
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#39;");
+  if (value === null || value === undefined) return "";
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 };
 
 const text = (value: any) => {
-    const cleaned = stripMarkdown(value);
-    return cleaned ? escapeHtml(cleaned) : "—";
+  const cleaned = stripMarkdown(value);
+  return cleaned ? escapeHtml(cleaned) : "—";
 };
 
 const sanitizeBase64 = (b64?: string | null) => (b64 || "").replace(/\s+/g, "").trim();
 
 const imageMimeFromBase64 = (b64?: string | null) => {
-    const cleaned = sanitizeBase64(b64);
-    if (!cleaned) return "image/jpeg";
-    if (cleaned.startsWith("iVBOR")) return "image/png";
-    if (cleaned.startsWith("R0lGOD")) return "image/gif";
-    if (cleaned.startsWith("UklGR")) return "image/webp";
-    return "image/jpeg";
+  const cleaned = sanitizeBase64(b64);
+  if (!cleaned) return "image/jpeg";
+  if (cleaned.startsWith("iVBOR")) return "image/png";
+  if (cleaned.startsWith("R0lGOD")) return "image/gif";
+  if (cleaned.startsWith("UklGR")) return "image/webp";
+  return "image/jpeg";
 };
 
 const imageSrcFromBase64 = (b64?: string | null) => {
-    const cleaned = sanitizeBase64(b64);
-    if (!cleaned || cleaned === "[GENERATED IMAGE STORED]") return null;
-    return `data:${imageMimeFromBase64(cleaned)};base64,${cleaned}`;
+  const cleaned = sanitizeBase64(b64);
+  if (!cleaned || cleaned === "[GENERATED IMAGE STORED]") return null;
+  return `data:${imageMimeFromBase64(cleaned)};base64,${cleaned}`;
 };
 
 const toList = (value: any) => {
-    if (!value) return [] as string[];
-    if (Array.isArray(value)) {
-        return value
-            .map((item) => text(typeof item === "string" ? item : item?.name || item))
-            .filter(Boolean);
-    }
-    return String(text(value))
-        .split(",")
-        .map((entry) => entry.trim())
-        .filter(Boolean);
+  if (!value) return [] as string[];
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => text(typeof item === "string" ? item : item?.name || item))
+      .filter(Boolean);
+  }
+  return String(text(value))
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+};
+
+const toParagraphsHtml = (value: any) => {
+  const cleaned = stripMarkdown(value);
+  if (!cleaned) return `<p>—</p>`;
+  return cleaned
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean)
+    .map((paragraph) => `<p>${escapeHtml(paragraph).replace(/\n/g, "<br/>")}</p>`)
+    .join("");
+};
+
+const toBulletListHtml = (value: any) => {
+  const list = toList(value);
+  if (!list.length) return `<li>—</li>`;
+  return list.map((item) => `<li>${item}</li>`).join("");
 };
 
 export function buildExportPdfHtml(payload: ExportPayload): string {
-    const campaignPlan = payload?.campaignPlan || {};
-    const partyDetails = payload?.partyDetails || {};
-    const narrative = payload?.narrative || {};
-    const characters = Array.isArray(partyDetails?.characters) ? partyDetails.characters : [];
+  const campaignPlan = payload?.campaignPlan || {};
+  const partyDetails = payload?.partyDetails || {};
+  const narrative = payload?.narrative || {};
+  const characters = Array.isArray(partyDetails?.characters) ? partyDetails.characters : [];
 
-    const title = text(narrative?.title || payload?.title || "Quest Chronicle");
-    const description = text(narrative?.description || campaignPlan?.core_conflict);
-    const generatedAt = text(payload?.createdAt ? new Date(payload.createdAt).toLocaleString() : new Date().toLocaleString());
-    const terrain = text(campaignPlan?.terrain || narrative?.terrain || "Unknown");
-    const difficulty = text(campaignPlan?.difficulty || narrative?.difficulty || "Medium");
+  const title = text(narrative?.title || payload?.title || "Quest Chronicle");
+  const description = text(narrative?.description || campaignPlan?.core_conflict);
+  const generatedAt = text(payload?.createdAt ? new Date(payload.createdAt).toLocaleString() : new Date().toLocaleString());
+  const terrain = text(payload?.terrain || campaignPlan?.terrain || narrative?.terrain || "Unknown");
+  const difficulty = text(payload?.difficulty || campaignPlan?.difficulty || narrative?.difficulty || "Medium");
 
-    const coverImage = imageSrcFromBase64(narrative?.cover_image_base64 || campaignPlan?.cover_image_base64);
-    const macguffinImage = imageSrcFromBase64(campaignPlan?.macguffin_image_base64);
-    const villainImage = imageSrcFromBase64(campaignPlan?.villain_image_base64 || campaignPlan?.villain_statblock?.image_base64);
-    const groupImage = imageSrcFromBase64(campaignPlan?.group_image_base64);
+  const coverImage = imageSrcFromBase64(narrative?.cover_image_base64 || campaignPlan?.cover_image_base64);
+  const macguffinImage = imageSrcFromBase64(campaignPlan?.macguffin_image_base64);
+  const villainImage = imageSrcFromBase64(campaignPlan?.villain_image_base64 || campaignPlan?.villain_statblock?.image_base64);
+  const groupImage = imageSrcFromBase64(campaignPlan?.group_image_base64);
 
-    const plotPoints = Array.isArray(campaignPlan?.plot_points) ? campaignPlan.plot_points : [];
-    const factions = Array.isArray(campaignPlan?.factions_involved) ? campaignPlan.factions_involved : [];
-    const locations = Array.isArray(campaignPlan?.key_locations) ? campaignPlan.key_locations : [];
+  const plotPoints = Array.isArray(campaignPlan?.plot_points) ? campaignPlan.plot_points : [];
+  const factions = Array.isArray(campaignPlan?.factions_involved) ? campaignPlan.factions_involved : [];
+  const locations = Array.isArray(campaignPlan?.key_locations) ? campaignPlan.key_locations : [];
+  const villainRaw = stripMarkdown(campaignPlan?.primary_antagonist || "");
+  const villainName = text(villainRaw.includes(":") ? villainRaw.split(":")[0] : villainRaw || "Unknown Antagonist");
+  const villainProfile = text(
+    villainRaw.includes(":")
+      ? villainRaw.split(":").slice(1).join(":")
+      : campaignPlan?.villain_statblock?.goal || campaignPlan?.core_conflict,
+  );
 
-    const characterSections = characters.map((char: any, index: number) => {
-        const portrait = imageSrcFromBase64(char?.image_base64);
-        const abilityScores = char?.ability_scores && typeof char.ability_scores === "object"
-            ? Object.entries(char.ability_scores)
-            : [];
+  const characterSections = characters.map((char: any, index: number) => {
+    const portrait = imageSrcFromBase64(char?.image_base64);
+    const abilityScores = char?.ability_scores && typeof char.ability_scores === "object"
+      ? Object.entries(char.ability_scores)
+      : [];
+    const skills = toList(char?.skills);
+    const inventory = toList(char?.inventory);
+    const traits = toList(char?.personality_traits);
+    const weapons = toList(char?.weapons);
+    const spells = toList(char?.spells);
 
-        return `
+    return `
           <section class="sheet page-break">
             <div class="character-grid">
               <div class="portrait-wrap">
@@ -128,20 +159,38 @@ export function buildExportPdfHtml(payload: ExportPayload): string {
                   </div>
                 ` : ""}
 
-                <div class="notes">
-                  <p><strong>Backstory Hook:</strong> ${text(char?.backstory_hook)}</p>
-                  <p><strong>Personal Goal:</strong> ${text(char?.ideals)}</p>
-                  <p><strong>Skills:</strong> ${toList(char?.skills).join(", ") || "—"}</p>
-                  <p><strong>Inventory:</strong> ${toList(char?.inventory).join(", ") || "—"}</p>
-                  <p><strong>Traits:</strong> ${toList(char?.personality_traits).join(", ") || "—"}</p>
+                <div class="character-panels">
+                  <div class="panel">
+                    <h4>Roleplay Notes</h4>
+                    <ul class="panel-list">
+                      <li><strong>Traits:</strong> ${traits.join(", ") || "—"}</li>
+                      <li><strong>Goal:</strong> ${text(char?.ideals)}</li>
+                      <li><strong>Bonds:</strong> ${text(char?.bonds)}</li>
+                      <li><strong>Flaws:</strong> ${text(char?.flaws)}</li>
+                    </ul>
+                  </div>
+                  <div class="panel">
+                    <h4>Combat & Utility</h4>
+                    <ul class="panel-list">
+                      <li><strong>Skills:</strong> ${skills.join(", ") || "—"}</li>
+                      <li><strong>Inventory:</strong> ${inventory.join(", ") || "—"}</li>
+                      <li><strong>Weapons:</strong> ${weapons.join(", ") || "—"}</li>
+                      <li><strong>Spells:</strong> ${spells.join(", ") || "—"}</li>
+                    </ul>
+                  </div>
+                </div>
+
+                <div class="panel">
+                  <h4>Backstory Hook</h4>
+                  <div class="rich-copy">${toParagraphsHtml(char?.backstory_hook || char?.physical_description)}</div>
                 </div>
               </div>
             </div>
           </section>
         `;
-    }).join("");
+  }).join("");
 
-    return `<!doctype html>
+  return `<!doctype html>
 <html>
 <head>
   <meta charset="utf-8" />
@@ -243,11 +292,22 @@ export function buildExportPdfHtml(payload: ExportPayload): string {
       page-break-inside: avoid;
     }
 
+    .party-image {
+      width: 100%;
+      height: 280px;
+      object-fit: cover;
+      object-position: center;
+      border-top: 1px solid var(--line);
+      display: block;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+
     .section-title { border-bottom: 1px solid var(--line); background: var(--surface-muted); }
 
     .overview-grid {
       display: grid;
-      grid-template-columns: 1.2fr 1fr;
+      grid-template-columns: 1fr;
       gap: 14px;
     }
 
@@ -269,6 +329,14 @@ export function buildExportPdfHtml(payload: ExportPayload): string {
     }
 
     .panel p { color: var(--ink-soft); line-height: 1.55; }
+
+    .rich-copy p {
+      color: var(--ink-soft);
+      line-height: 1.6;
+      margin-bottom: 8px;
+    }
+
+    .rich-copy p:last-child { margin-bottom: 0; }
 
     .plot-list {
       margin: 0;
@@ -299,8 +367,29 @@ export function buildExportPdfHtml(payload: ExportPayload): string {
       color: #475569;
     }
 
-    .villain-grid,
+    .panel-list {
+      margin: 0;
+      padding: 0 0 0 18px;
+      color: var(--ink-soft);
+      line-height: 1.5;
+    }
+
+    .panel-list li {
+      margin-bottom: 6px;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+
+    .panel-list li:last-child { margin-bottom: 0; }
+
     .character-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+    .villain-hero {
+      display: grid;
+      grid-template-columns: 40% 1fr;
+      gap: 12px;
+      align-items: stretch;
+    }
 
     .villain-media,
     .portrait-wrap {
@@ -351,6 +440,39 @@ export function buildExportPdfHtml(payload: ExportPayload): string {
 
     .villain-main { color: var(--ink-soft); line-height: 1.5; }
     .villain-main p + p { margin-top: 8px; }
+
+    .villain-main .panel,
+    .villain-main .two-col,
+    .villain-main .villain-meta {
+      break-inside: avoid-page;
+      page-break-inside: avoid;
+    }
+
+    .villain-profile {
+      margin-bottom: 10px;
+      color: var(--ink-soft);
+      line-height: 1.55;
+    }
+
+    .character-main {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .character-panels {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .villain-meta {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 10px;
+      margin-bottom: 10px;
+    }
 
     .sub { margin-top: 6px; color: #475569; }
 
@@ -422,6 +544,11 @@ export function buildExportPdfHtml(payload: ExportPayload): string {
 
     .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 
+    .keep-together {
+      break-inside: avoid-page;
+      page-break-inside: avoid;
+    }
+
     .page-break {
       break-before: page;
       page-break-before: always;
@@ -492,11 +619,22 @@ export function buildExportPdfHtml(payload: ExportPayload): string {
         max-height: 78mm;
       }
 
-      .villain-grid,
+      .party-image {
+        height: 78mm;
+      }
+
+      .villain-hero,
       .character-grid,
-      .overview-grid,
       .two-col {
         grid-template-columns: 1fr 1fr;
+      }
+
+      .character-panels {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .overview-grid {
+        grid-template-columns: 1fr;
       }
 
       .villain-media,
@@ -512,6 +650,8 @@ export function buildExportPdfHtml(payload: ExportPayload): string {
 
       .ability-grid { gap: 5px; }
       .ability { padding: 4px; }
+
+      .villain-meta { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 
       img {
         max-width: 100%;
@@ -543,70 +683,105 @@ export function buildExportPdfHtml(payload: ExportPayload): string {
       <div class="overview-grid">
         <div class="panel">
           <h4>Background Lore</h4>
-          <p>${text(narrative?.background)}</p>
+          <div class="rich-copy">${toParagraphsHtml(narrative?.background)}</div>
         </div>
         <div class="panel">
           <h4>Core Conflict</h4>
-          <p>${text(campaignPlan?.core_conflict)}</p>
+          <div class="rich-copy">${toParagraphsHtml(campaignPlan?.core_conflict)}</div>
         </div>
 
         <div class="panel">
           <h4>Plot Outline</h4>
           ${plotPoints.length
-            ? `<ol class="plot-list">${plotPoints.map((point: string, idx: number) => `<li><span class="num">${String(idx + 1).padStart(2, "0")}</span><span>${text(point)}</span></li>`).join("")}</ol>`
-            : `<p>—</p>`}
+      ? `<ol class="plot-list">${plotPoints.map((point: string, idx: number) => `<li><span class="num">${String(idx + 1).padStart(2, "0")}</span><span>${text(point)}</span></li>`).join("")}</ol>`
+      : `<p>—</p>`}
         </div>
 
         <div class="panel">
           <h4>Rewards & Hooks</h4>
-          <p>${text(narrative?.rewards)}</p>
+          <div class="rich-copy">${toParagraphsHtml(narrative?.rewards)}</div>
           ${macguffinImage ? `<img src="${macguffinImage}" alt="Artifact" style="margin-top:10px;width:100%;border-radius:10px;border:1px solid var(--line);max-height:220px;object-fit:cover;"/>` : ""}
         </div>
-
-        ${(factions.length || locations.length) ? `
-          <div class="panel" style="grid-column: 1 / -1;">
-            <div class="two-col">
-              <div>
-                <h4>Factions</h4>
-                <div class="chip-list">
-                  ${factions.length ? factions.map((f: string) => `<span class="chip">${text(f.split(":")[0] || f)}</span>`).join("") : `<span class="chip">—</span>`}
-                </div>
-              </div>
-              <div>
-                <h4>Key Locations</h4>
-                <div class="chip-list">
-                  ${locations.length ? locations.map((l: string) => `<span class="chip">${text(l.split(":")[0] || l)}</span>`).join("") : `<span class="chip">—</span>`}
-                </div>
-              </div>
-            </div>
-          </div>
-        ` : ""}
       </div>
     </section>
 
-    ${campaignPlan?.villain_statblock ? `
-      <section class="sheet page-break card-surface">
-        <div class="section-title"><p class="kicker">Primary Antagonist</p><h2>${text(campaignPlan?.primary_antagonist)}</h2></div>
-        <div class="villain-grid">
-          <div class="villain-main">
-            <p><strong>HP:</strong> ${text(campaignPlan?.villain_statblock?.hp)}</p>
-            <p><strong>AC:</strong> ${text(campaignPlan?.villain_statblock?.ac)}</p>
-            <p><strong>Quote:</strong> ${text(campaignPlan?.villain_statblock?.flavor_quote)}</p>
-            <p><strong>Attacks:</strong> ${toList(campaignPlan?.villain_statblock?.attacks).join(", ") || "—"}</p>
-            <p><strong>Special Abilities:</strong> ${toList(campaignPlan?.villain_statblock?.special_abilities).join(", ") || "—"}</p>
-            <p><strong>Appearance:</strong> ${text(campaignPlan?.villain_statblock?.physical_description)}</p>
+    ${(factions.length || locations.length) ? `
+      <section class="sheet card-surface keep-together">
+        <div class="section-title"><h2>Factions & Key Locations</h2></div>
+        <div class="sheet-pad">
+          <div class="two-col">
+            <div class="panel">
+              <h4>Factions</h4>
+              <div class="chip-list">
+                ${factions.length ? factions.map((f: string) => `<span class="chip">${text(f.split(":")[0] || f)}</span>`).join("") : `<span class="chip">—</span>`}
+              </div>
+            </div>
+            <div class="panel">
+              <h4>Key Locations</h4>
+              <div class="chip-list">
+                ${locations.length ? locations.map((l: string) => `<span class="chip">${text(l.split(":")[0] || l)}</span>`).join("") : `<span class="chip">—</span>`}
+              </div>
+            </div>
           </div>
+        </div>
+      </section>
+    ` : ""}
+
+    ${campaignPlan?.villain_statblock ? `
+      <section class="sheet card-surface">
+        <div class="section-title"><p class="kicker">Primary Antagonist</p><h2>${villainName}</h2></div>
+        <div class="sheet-pad villain-hero">
           <div class="villain-media">
             ${villainImage ? `<img src="${villainImage}" alt="Villain Portrait" />` : `<div class="placeholder">No villain image</div>`}
+          </div>
+          <div class="villain-main">
+            <p class="villain-profile">${villainProfile}</p>
+            <div class="villain-meta">
+              <div class="meta-card"><strong>HP</strong> ${text(campaignPlan?.villain_statblock?.hp)}</div>
+              <div class="meta-card"><strong>AC</strong> ${text(campaignPlan?.villain_statblock?.ac)}</div>
+              <div class="meta-card"><strong>Threat</strong> ${difficulty}</div>
+            </div>
+            <div class="panel">
+              <h4>Quote</h4>
+              <div class="rich-copy">${toParagraphsHtml(campaignPlan?.villain_statblock?.flavor_quote)}</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="sheet page-break card-surface">
+        <div class="section-title"><h2>Villain Details</h2></div>
+        <div class="sheet-pad">
+          <div class="panel" style="margin-bottom:10px;">
+            <h4>Appearance</h4>
+            <div class="rich-copy">${toParagraphsHtml(campaignPlan?.villain_statblock?.physical_description)}</div>
+          </div>
+          <div class="two-col">
+            <div class="panel">
+              <h4>Attacks</h4>
+              <ul class="panel-list">${toBulletListHtml(campaignPlan?.villain_statblock?.attacks)}</ul>
+            </div>
+            <div class="panel">
+              <h4>Special Abilities</h4>
+              <ul class="panel-list">${toBulletListHtml(campaignPlan?.villain_statblock?.special_abilities)}</ul>
+            </div>
           </div>
         </div>
       </section>
     ` : ""}
 
     ${groupImage ? `
-      <section class="sheet page-break card-surface">
+      <section class="sheet card-surface">
         <div class="section-title"><h2>Adventuring Party</h2></div>
-        <img class="cover-image" style="height:auto;max-height:none;border-bottom:none;" src="${groupImage}" alt="Party Portrait" />
+        <div class="sheet-pad" style="padding-bottom:0;">
+          <div class="meta-grid">
+            <div class="meta-card"><strong>Party</strong> ${text(partyDetails?.party_name)}</div>
+            <div class="meta-card"><strong>Members</strong> ${characters.length || 0}</div>
+            <div class="meta-card"><strong>Terrain</strong> ${terrain}</div>
+            <div class="meta-card"><strong>Difficulty</strong> ${difficulty}</div>
+          </div>
+        </div>
+        <img class="party-image" src="${groupImage}" alt="Party Portrait" />
       </section>
     ` : ""}
 

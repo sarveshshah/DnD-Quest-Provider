@@ -1,12 +1,17 @@
+import { RefObject } from "react";
+import { useReactToPrint } from "react-to-print";
 import { buildExportPdfHtml } from "./exportPdfTemplate";
 
 interface ExportPanelProps {
     campaignPlan: any;
     partyDetails: any;
     narrative: any;
+    printableRef?: RefObject<HTMLDivElement | null>;
+    terrain?: string;
+    difficulty?: string;
 }
 
-export default function ExportPanel({ campaignPlan, partyDetails, narrative }: ExportPanelProps) {
+export default function ExportPanel({ campaignPlan, partyDetails, narrative, printableRef, terrain, difficulty }: ExportPanelProps) {
     const stripMarkdown = (value: any) => {
         if (value === null || value === undefined) return "";
         return String(value)
@@ -698,6 +703,8 @@ export default function ExportPanel({ campaignPlan, partyDetails, narrative }: E
             campaignPlan,
             partyDetails,
             narrative,
+            terrain,
+            difficulty,
             title: stripMarkdown(narrative?.title || "campaign_export"),
             createdAt: new Date().toISOString(),
         };
@@ -744,9 +751,10 @@ export default function ExportPanel({ campaignPlan, partyDetails, narrative }: E
         }
     };
 
-    const handlePrintCurrentView = () => {
-        window.print();
-    };
+    const handlePrintCurrentView = useReactToPrint({
+        contentRef: printableRef,
+        documentTitle: stripMarkdown(narrative?.title || "campaign_print"),
+    });
 
     if (!campaignPlan && !partyDetails && !narrative) return null;
 
@@ -761,7 +769,14 @@ export default function ExportPanel({ campaignPlan, partyDetails, narrative }: E
             </button>
 
             <button
-                onClick={handlePrintCurrentView}
+                onClick={() => {
+                    if (printableRef?.current) {
+                        handlePrintCurrentView();
+                        return;
+                    }
+
+                    window.print();
+                }}
                 className="flex items-center gap-2 bg-emerald-50 dark:bg-emerald-900/40 hover:bg-emerald-100 dark:hover:bg-emerald-800 text-emerald-700 dark:text-emerald-300 font-bold py-2 px-6 rounded-lg border border-emerald-200 dark:border-emerald-800/50 transition-colors"
             >
                 <span>🖨️</span> Print Current View

@@ -44,6 +44,7 @@ export default function Home() {
   const resizeStartYRef = useRef(0);
   const resizeStartWidthRef = useRef(460);
   const resizeStartHeightRef = useRef(220);
+  const printableContentRef = useRef<HTMLDivElement | null>(null);
 
   const clampChatHeight = (height: number) => Math.min(760, Math.max(120, height));
   const clampChatWidth = (width: number) => {
@@ -635,21 +636,23 @@ export default function Home() {
             )}
 
             {/* Dynamic UI Components */}
-            <div className="flex flex-col gap-16">
+            <div ref={printableContentRef} className="print-campaign-root flex flex-col gap-16">
 
               {/* 1. Primary Campaign Document Layout */}
               {(narrative || campaignPlan) && (
-                <CampaignLore
-                  narrative={narrative}
-                  campaignPlan={campaignPlan}
-                  terrain={terrain}
-                  difficulty={difficulty}
-                />
+                <div className="print-section">
+                  <CampaignLore
+                    narrative={narrative}
+                    campaignPlan={campaignPlan}
+                    terrain={terrain}
+                    difficulty={difficulty}
+                  />
+                </div>
               )}
 
               {/* 2. Villain Card */}
               {campaignPlan?.villain_statblock && (
-                <div>
+                <div className="print-section print-page-break">
                   {/* <h2 className="text-2xl font-extrabold text-red-500 mb-6 border-b border-slate-200 dark:border-zinc-800 pb-4 flex items-center gap-3">
                     <span className="material-symbols-outlined !text-3xl">swords</span>
                     The Primary Antagonist
@@ -681,7 +684,7 @@ export default function Home() {
                   )}
 
                   {/* Card: info left, image right */}
-                  <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl overflow-hidden flex flex-col md:flex-row shadow-[0_8px_30px_rgb(0,0,0,0.06)] dark:shadow-xl transition-colors duration-300">
+                  <div className="print-section print-page-break bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl overflow-hidden flex flex-col md:flex-row shadow-[0_8px_30px_rgb(0,0,0,0.06)] dark:shadow-xl transition-colors duration-300">
 
                     {/* Left: Party metadata */}
                     <div className="flex-1 p-8 md:p-10 flex flex-col justify-center gap-4">
@@ -703,7 +706,7 @@ export default function Home() {
                           </span>
                         )}
                       </div>
-                      <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed mt-2">
+                      <p className="print-hide text-sm text-slate-500 dark:text-slate-400 leading-relaxed mt-2">
                         Click the portrait to view the full group shot.
                       </p>
                     </div>
@@ -728,7 +731,7 @@ export default function Home() {
                         </h3>
                       </div>
                       {/* Zoom hint */}
-                      <div className="absolute top-3 right-3 opacity-0 group-hover/party:opacity-100 transition-opacity bg-black/50 rounded-full p-1.5 z-10">
+                      <div className="print-hide absolute top-3 right-3 opacity-0 group-hover/party:opacity-100 transition-opacity bg-black/50 rounded-full p-1.5 z-10">
                         <span className="material-symbols-outlined !text-[18px] text-white">zoom_in</span>
                       </div>
                     </div>
@@ -738,7 +741,7 @@ export default function Home() {
 
               {/* 3. The Party Sheet (Or Initial Suggestions) */}
               {partyDetails?.characters ? (
-                <div>
+                <div className="print-section print-page-break">
                   {/* <h2 className="text-2xl font-extrabold text-rose-500 mb-6 border-b border-slate-200 dark:border-zinc-800 pb-4 flex items-center gap-3">
                     <span className="material-symbols-outlined !text-3xl">group</span>
                     {resolvedPartyName || partyName || "The Heroes"}
@@ -757,13 +760,13 @@ export default function Home() {
                           <>
                             <button
                               onClick={prev}
-                              className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-5 z-10 bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 shadow-md rounded-full p-2 text-slate-600 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-700 transition-all"
+                              className="print-hide absolute left-0 top-1/2 -translate-y-1/2 -translate-x-5 z-10 bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 shadow-md rounded-full p-2 text-slate-600 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-700 transition-all"
                             >
                               <span className="material-symbols-outlined !text-xl">chevron_left</span>
                             </button>
                             <button
                               onClick={next}
-                              className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-5 z-10 bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 shadow-md rounded-full p-2 text-slate-600 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-700 transition-all"
+                              className="print-hide absolute right-0 top-1/2 -translate-y-1/2 translate-x-5 z-10 bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 shadow-md rounded-full p-2 text-slate-600 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-700 transition-all"
                             >
                               <span className="material-symbols-outlined !text-xl">chevron_right</span>
                             </button>
@@ -775,7 +778,7 @@ export default function Home() {
 
                         {/* Dot indicators */}
                         {total > 1 && (
-                          <div className="flex justify-center gap-2 mt-6">
+                          <div className="print-hide flex justify-center gap-2 mt-6">
                             {chars.map((_: any, i: number) => (
                               <button
                                 key={i}
@@ -823,6 +826,9 @@ export default function Home() {
                   campaignPlan={campaignPlan}
                   partyDetails={partyDetails}
                   narrative={narrative}
+                  printableRef={printableContentRef}
+                  terrain={terrain}
+                  difficulty={difficulty}
                 />
               )}
 

@@ -40,3 +40,48 @@ body {
   letter-spacing: normal !important;
   white-space: nowrap !important;
 }
+
+@media print {
+  @page {
+    size: A4;
+    margin: 12mm;
+  }
+
+  html,
+  body {
+    background: #fff !important;
+    color: #111827 !important;
+  }
+
+  .print-campaign-root {
+    display: block !important;
+  }
+
+  .print-campaign-root .print-section {
+    break-inside: avoid-page;
+    page-break-inside: avoid;
+    margin-bottom: 12mm;
+  }
+
+  .print-campaign-root .print-page-break {
+    break-before: page;
+    page-break-before: always;
+  }
+
+  .print-campaign-root .print-hide,
+  .print-campaign-root .fixed,
+  .print-campaign-root [class*="cursor-zoom"],
+  .print-campaign-root [class*="group-hover"] {
+    display: none !important;
+  }
+
+  .print-campaign-root img {
+    max-width: 100% !important;
+    break-inside: avoid-page;
+    page-break-inside: avoid;
+  }
+
+  .print-campaign-root .prose {
+    max-width: none !important;
+  }
+}
