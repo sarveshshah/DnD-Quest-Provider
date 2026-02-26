@@ -11,7 +11,7 @@ interface Thread {
 interface SidebarProps {
     onSelectThread: (threadId: string) => void;
     currentThreadId: string | null;
-    pendingThread?: { id?: string; name: string; createdAt: string } | null;
+    pendingThread?: { id?: string; name: string; createdAt: string; phase: "generating" | "syncing" } | null;
     isOpen: boolean;
     onClose: () => void;
 }
@@ -66,6 +66,27 @@ export default function Sidebar({ onSelectThread, currentThreadId, pendingThread
     const active = threads.filter(t => !t.isArchived);
     const archived = threads.filter(t => t.isArchived);
     const showPendingThread = !!pendingThread && !(pendingThread.id && active.some(t => t.id === pendingThread.id));
+
+    const PendingThreadCard = () => {
+        if (!pendingThread) return null;
+        const isSyncing = pendingThread.phase === "syncing";
+        return (
+            <div className="w-full text-left px-4 py-3.5 rounded-xl text-sm pr-10 bg-rose-50/80 dark:bg-zinc-800/80 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-500/30 shadow-sm">
+                <div className="font-bold truncate flex items-center gap-2">
+                    <span className="material-symbols-outlined !text-[14px] animate-spin-slow">
+                        {isSyncing ? "sync" : "hourglass_top"}
+                    </span>
+                    <span>{pendingThread.name || 'New Campaign'}</span>
+                </div>
+                <div className="text-xs text-slate-400 dark:text-zinc-500 mt-1.5 flex items-center gap-1.5 opacity-80">
+                    <span className="material-symbols-outlined !text-[12px]">schedule</span>
+                    {formatDate(pendingThread.createdAt)}
+                    <span className="mx-1">•</span>
+                    <span>{isSyncing ? "Syncing..." : "Generating..."}</span>
+                </div>
+            </div>
+        );
+    };
 
     const ThreadButton = ({ thread, isArchived }: { thread: Thread; isArchived: boolean }) => (
         <div className="relative group/item">
@@ -129,16 +150,7 @@ export default function Sidebar({ onSelectThread, currentThreadId, pendingThread
                     {loading ? (
                         <div className="space-y-3">
                             {showPendingThread && (
-                                <div className="w-full text-left px-4 py-3.5 rounded-xl text-sm pr-10 bg-rose-50/80 dark:bg-zinc-800/80 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-500/30 shadow-sm">
-                                    <div className="font-bold truncate flex items-center gap-2">
-                                        <span className="material-symbols-outlined animate-spin-slow !text-[14px]">hourglass_top</span>
-                                        <span>{pendingThread.name || 'New Campaign'}</span>
-                                    </div>
-                                    <div className="text-xs text-slate-400 dark:text-zinc-500 mt-1.5 flex items-center gap-1.5 opacity-80">
-                                        <span className="material-symbols-outlined !text-[12px]">schedule</span>
-                                        {formatDate(pendingThread.createdAt)}
-                                    </div>
-                                </div>
+                                <PendingThreadCard />
                             )}
                             <div className="flex justify-center py-8">
                                 <span className="material-symbols-outlined animate-spin-slow text-rose-500">hourglass_top</span>
@@ -153,16 +165,7 @@ export default function Sidebar({ onSelectThread, currentThreadId, pendingThread
                                 </div>
                                 <div className="space-y-1">
                                     {showPendingThread && (
-                                        <div className="w-full text-left px-4 py-3.5 rounded-xl text-sm pr-10 bg-rose-50/80 dark:bg-zinc-800/80 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-500/30 shadow-sm">
-                                            <div className="font-bold truncate flex items-center gap-2">
-                                                <span className="material-symbols-outlined animate-spin-slow !text-[14px]">hourglass_top</span>
-                                                <span>{pendingThread.name || 'New Campaign'}</span>
-                                            </div>
-                                            <div className="text-xs text-slate-400 dark:text-zinc-500 mt-1.5 flex items-center gap-1.5 opacity-80">
-                                                <span className="material-symbols-outlined !text-[12px]">schedule</span>
-                                                {formatDate(pendingThread.createdAt)}
-                                            </div>
-                                        </div>
+                                        <PendingThreadCard />
                                     )}
                                     {active.length === 0 ? (
                                         <p className="text-slate-400 dark:text-zinc-600 text-xs italic px-2 py-3">No active campaigns.</p>

@@ -17,7 +17,7 @@ export default function Home() {
   const [partyDetails, setPartyDetails] = useState<any>(null);
   const [narrative, setNarrative] = useState<any>(null);
   const [threadId, setThreadId] = useState<string | null>(null);
-  const [pendingSidebarThread, setPendingSidebarThread] = useState<{ id?: string; name: string; createdAt: string } | null>(null);
+  const [pendingSidebarThread, setPendingSidebarThread] = useState<{ id?: string; name: string; createdAt: string; phase: "generating" | "syncing" } | null>(null);
   const [charIndex, setCharIndex] = useState(0);
   const [charSlideDirection, setCharSlideDirection] = useState<1 | -1>(1);
   const [groupLightbox, setGroupLightbox] = useState(false);
@@ -216,7 +216,7 @@ export default function Home() {
                   setThreadId(parsed.thread_id);
                   setPendingSidebarThread((prev) => prev
                     ? { ...prev, id: parsed.thread_id }
-                    : { id: parsed.thread_id, name: "New Campaign", createdAt: new Date().toISOString() }
+                    : { id: parsed.thread_id, name: "New Campaign", createdAt: new Date().toISOString(), phase: "generating" }
                   );
                   localStorage.setItem('dnd_active_thread_id', parsed.thread_id);
                 }
@@ -250,6 +250,7 @@ export default function Home() {
                 }
                 else if (eventType === "done") {
                   setStatus("Generation Complete!");
+                  setPendingSidebarThread((prev) => prev ? { ...prev, phase: "syncing" } : prev);
                   done = true;
                 }
               } catch (parseError) {
@@ -274,6 +275,7 @@ export default function Home() {
     setPendingSidebarThread({
       name: pendingName,
       createdAt: new Date().toISOString(),
+      phase: "generating",
     });
 
     setStatus("Connecting to AI...");
