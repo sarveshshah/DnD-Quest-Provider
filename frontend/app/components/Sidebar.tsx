@@ -11,7 +11,7 @@ interface Thread {
 interface SidebarProps {
     onSelectThread: (threadId: string) => void;
     currentThreadId: string | null;
-    pendingThread?: { name: string; createdAt: string } | null;
+    pendingThread?: { id?: string; name: string; createdAt: string } | null;
     isOpen: boolean;
     onClose: () => void;
 }
@@ -65,14 +65,15 @@ export default function Sidebar({ onSelectThread, currentThreadId, pendingThread
 
     const active = threads.filter(t => !t.isArchived);
     const archived = threads.filter(t => t.isArchived);
+    const showPendingThread = !!pendingThread && !(pendingThread.id && active.some(t => t.id === pendingThread.id));
 
     const ThreadButton = ({ thread, isArchived }: { thread: Thread; isArchived: boolean }) => (
         <div className="relative group/item">
             <button
                 onClick={() => { onSelectThread(thread.id); onClose(); }}
                 className={`w-full text-left px-4 py-3.5 rounded-xl text-sm transition-all group pr-10 ${currentThreadId === thread.id
-                        ? 'bg-rose-50 dark:bg-zinc-800/80 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-500/30 shadow-sm'
-                        : 'text-slate-600 dark:text-zinc-400 hover:bg-slate-50 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-white border border-transparent hover:border-slate-200 dark:hover:border-zinc-700'
+                    ? 'bg-rose-50 dark:bg-zinc-800/80 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-500/30 shadow-sm'
+                    : 'text-slate-600 dark:text-zinc-400 hover:bg-slate-50 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-white border border-transparent hover:border-slate-200 dark:hover:border-zinc-700'
                     }`}
             >
                 <div className="font-bold truncate group-hover:text-rose-600 dark:group-hover:text-rose-400 transition-colors">
@@ -126,8 +127,22 @@ export default function Sidebar({ onSelectThread, currentThreadId, pendingThread
                 {/* Scrollable list */}
                 <div className="flex-1 overflow-y-auto px-4 pb-6 custom-scrollbar space-y-6">
                     {loading ? (
-                        <div className="flex justify-center py-8">
-                            <span className="material-symbols-outlined animate-spin-slow text-rose-500">hourglass_top</span>
+                        <div className="space-y-3">
+                            {showPendingThread && (
+                                <div className="w-full text-left px-4 py-3.5 rounded-xl text-sm pr-10 bg-rose-50/80 dark:bg-zinc-800/80 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-500/30 shadow-sm">
+                                    <div className="font-bold truncate flex items-center gap-2">
+                                        <span className="material-symbols-outlined animate-spin-slow !text-[14px]">hourglass_top</span>
+                                        <span>{pendingThread.name || 'New Campaign'}</span>
+                                    </div>
+                                    <div className="text-xs text-slate-400 dark:text-zinc-500 mt-1.5 flex items-center gap-1.5 opacity-80">
+                                        <span className="material-symbols-outlined !text-[12px]">schedule</span>
+                                        {formatDate(pendingThread.createdAt)}
+                                    </div>
+                                </div>
+                            )}
+                            <div className="flex justify-center py-8">
+                                <span className="material-symbols-outlined animate-spin-slow text-rose-500">hourglass_top</span>
+                            </div>
                         </div>
                     ) : (
                         <>
@@ -137,7 +152,7 @@ export default function Sidebar({ onSelectThread, currentThreadId, pendingThread
                                     Recent Campaigns
                                 </div>
                                 <div className="space-y-1">
-                                    {pendingThread && (
+                                    {showPendingThread && (
                                         <div className="w-full text-left px-4 py-3.5 rounded-xl text-sm pr-10 bg-rose-50/80 dark:bg-zinc-800/80 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-500/30 shadow-sm">
                                             <div className="font-bold truncate flex items-center gap-2">
                                                 <span className="material-symbols-outlined animate-spin-slow !text-[14px]">hourglass_top</span>

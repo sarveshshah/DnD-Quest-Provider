@@ -17,7 +17,7 @@ export default function Home() {
   const [partyDetails, setPartyDetails] = useState<any>(null);
   const [narrative, setNarrative] = useState<any>(null);
   const [threadId, setThreadId] = useState<string | null>(null);
-  const [pendingSidebarThread, setPendingSidebarThread] = useState<{ name: string; createdAt: string } | null>(null);
+  const [pendingSidebarThread, setPendingSidebarThread] = useState<{ id?: string; name: string; createdAt: string } | null>(null);
   const [charIndex, setCharIndex] = useState(0);
   const [charSlideDirection, setCharSlideDirection] = useState<1 | -1>(1);
   const [groupLightbox, setGroupLightbox] = useState(false);
@@ -214,7 +214,10 @@ export default function Home() {
                 if (eventType === "thread_id") {
                   const parsed = JSON.parse(eventData);
                   setThreadId(parsed.thread_id);
-                  setPendingSidebarThread(null);
+                  setPendingSidebarThread((prev) => prev
+                    ? { ...prev, id: parsed.thread_id }
+                    : { id: parsed.thread_id, name: "New Campaign", createdAt: new Date().toISOString() }
+                  );
                   localStorage.setItem('dnd_active_thread_id', parsed.thread_id);
                 }
                 else if (eventType === "hitl") {
@@ -396,8 +399,8 @@ export default function Home() {
         <form
           onSubmit={async (e) => {
             e.preventDefault();
-            if (!prompt.trim()) return;
             if (status === "Generation Complete!" && threadId) {
+              if (!prompt.trim()) return;
               // Chat mode
               const userMsg = prompt.trim();
               setChatMessages(prev => [...prev, { role: 'user', content: userMsg }]);
