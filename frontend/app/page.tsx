@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import CampaignLore from "./components/CampaignLore";
 import CharacterSheet from "./components/CharacterSheet";
 import ExportPanel from "./components/ExportPanel";
@@ -35,6 +35,51 @@ export default function Home() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [chatMessages, setChatMessages] = useState<{ role: string; content: string }[]>([]);
   const [isChatLoading, setIsChatLoading] = useState(false);
+  const [isChatboxOpen, setIsChatboxOpen] = useState(false);
+  const [chatboxWidth, setChatboxWidth] = useState(460);
+  const [chatboxHeight, setChatboxHeight] = useState(220);
+  const [chatboxResizeMode, setChatboxResizeMode] = useState<null | "top" | "left" | "top-left">(null);
+  const resizeStartXRef = useRef(0);
+  const resizeStartYRef = useRef(0);
+  const resizeStartWidthRef = useRef(460);
+  const resizeStartHeightRef = useRef(220);
+
+  const clampChatHeight = (height: number) => Math.min(760, Math.max(120, height));
+  const clampChatWidth = (width: number) => {
+    const maxWidth = Math.min(560, Math.max(300, window.innerWidth - 24));
+    return Math.min(maxWidth, Math.max(300, width));
+  };
+
+  useEffect(() => {
+    if (!chatboxResizeMode) return;
+
+    const handleMouseMove = (event: MouseEvent) => {
+      if (chatboxResizeMode === "top" || chatboxResizeMode === "top-left") {
+        const deltaY = resizeStartYRef.current - event.clientY;
+        setChatboxHeight(clampChatHeight(resizeStartHeightRef.current + deltaY));
+      }
+
+      if (chatboxResizeMode === "left" || chatboxResizeMode === "top-left") {
+        const deltaX = resizeStartXRef.current - event.clientX;
+        setChatboxWidth(clampChatWidth(resizeStartWidthRef.current + deltaX));
+      }
+    };
+
+    const handleMouseUp = () => {
+      setChatboxResizeMode(null);
+      document.body.style.userSelect = "";
+    };
+
+    document.body.style.userSelect = "none";
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+      document.body.style.userSelect = "";
+    };
+  }, [chatboxResizeMode]);
 
   // Load active thread from LocalStorage on mount to preserve state across refreshes
   useEffect(() => {
@@ -351,48 +396,112 @@ export default function Home() {
               handleSubmit(e);
             }
           }}
-          className={`w-full flex flex-col gap-2 transition-all duration-500 ${status && status !== "Generation Complete!"
-              ? 'hidden'
-              : status === "Generation Complete!"
-                ? 'fixed bottom-0 left-0 right-0 z-50 px-4 pb-4 pt-2 max-w-3xl mx-auto'
-                : 'max-w-6xl mb-16 gap-6'
+          className={`flex flex-col gap-2 transition-all duration-500 ${status && status !== "Generation Complete!"
+            ? 'hidden'
+            : status === "Generation Complete!"
+              ? isChatboxOpen
+                ? 'fixed bottom-4 right-4 z-50'
+                : 'hidden'
+              : 'w-full max-w-6xl mb-16 gap-6'
             }`}
+          style={status === "Generation Complete!" && isChatboxOpen ? { width: `${chatboxWidth}px`, maxWidth: "calc(100vw - 1rem)" } : undefined}
         >
+
+          {/* Chat controls — only in floating mode */}
+          {status === "Generation Complete!" && (
+            <div className="flex items-center justify-end gap-2 px-1">
+              {/* <span className="text-xs text-slate-500 dark:text-zinc-400">Drag top edge to resize</span> */}
+              <button
+                type="button"
+                onClick={() => setIsChatboxOpen(false)}
+                className="text-xs bg-rose-600 hover:bg-rose-500 border border-rose-700 rounded-lg px-3 py-1.5 text-white font-semibold shadow-md shadow-rose-600/20 transition-colors flex items-center gap-1.5"
+                title="Close chat"
+                aria-label="Close chat"
+              >
+                <span className="material-symbols-outlined !text-sm">close</span>
+                Close
+              </button>
+            </div>
+          )}
 
           {/* Chat messages — only in floating mode */}
           {status === "Generation Complete!" && chatMessages.length > 0 && (
-            <div className="bg-white/95 dark:bg-zinc-900/95 backdrop-blur-xl rounded-2xl border border-slate-200 dark:border-zinc-700 shadow-lg max-h-[200px] overflow-y-auto p-4 space-y-3 custom-scrollbar">
-              {chatMessages.map((msg, i) => (
-                <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                  <div className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${msg.role === 'user'
+            <div className="relative bg-white/95 dark:bg-zinc-900/95 backdrop-blur-xl rounded-2xl border border-slate-200 dark:border-zinc-700 shadow-lg overflow-hidden">
+              <div
+                role="separator"
+                aria-label="Resize chat width"
+                title="Drag left edge to resize width"
+                onMouseDown={(event) => {
+                  resizeStartXRef.current = event.clientX;
+                  resizeStartWidthRef.current = chatboxWidth;
+                  setChatboxResizeMode("left");
+                }}
+                className="absolute left-0 top-0 bottom-0 w-3 cursor-col-resize z-20 flex items-center"
+              >
+                <div className="h-10 w-1 rounded-full bg-slate-300/80 dark:bg-zinc-600/80 ml-1" />
+              </div>
+
+              <div
+                role="separator"
+                aria-label="Resize chat"
+                title="Drag top edge to resize height"
+                onMouseDown={(event) => {
+                  resizeStartYRef.current = event.clientY;
+                  resizeStartHeightRef.current = chatboxHeight;
+                  setChatboxResizeMode("top");
+                }}
+                className="h-3 w-full cursor-row-resize flex items-center justify-center border-b border-slate-200 dark:border-zinc-700 bg-slate-50 dark:bg-zinc-900/70"
+              >
+                <div className="w-10 h-1 rounded-full bg-slate-300 dark:bg-zinc-600" />
+              </div>
+
+              <div
+                role="separator"
+                aria-label="Resize chat width and height"
+                title="Drag corner to resize"
+                onMouseDown={(event) => {
+                  resizeStartXRef.current = event.clientX;
+                  resizeStartYRef.current = event.clientY;
+                  resizeStartWidthRef.current = chatboxWidth;
+                  resizeStartHeightRef.current = chatboxHeight;
+                  setChatboxResizeMode("top-left");
+                }}
+                className="absolute left-0 top-0 h-3 w-3 cursor-nwse-resize z-30"
+              />
+
+              <div style={{ height: `${chatboxHeight}px` }} className="overflow-y-auto p-4 space-y-3 custom-scrollbar">
+                {chatMessages.map((msg, i) => (
+                  <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${msg.role === 'user'
                       ? 'bg-rose-600 text-white rounded-br-md'
                       : 'bg-slate-100 dark:bg-zinc-800 text-slate-800 dark:text-slate-200 rounded-bl-md'
-                    }`}>
-                    {msg.content}
+                      }`}>
+                      {msg.content}
+                    </div>
                   </div>
-                </div>
-              ))}
-              {isChatLoading && (
-                <div className="flex justify-start">
-                  <div className="bg-slate-100 dark:bg-zinc-800 rounded-2xl rounded-bl-md px-4 py-2.5 text-sm text-slate-500 dark:text-slate-400 animate-pulse">
-                    The DM is thinking...
+                ))}
+                {isChatLoading && (
+                  <div className="flex justify-start">
+                    <div className="bg-slate-100 dark:bg-zinc-800 rounded-2xl rounded-bl-md px-4 py-2.5 text-sm text-slate-500 dark:text-slate-400 animate-pulse">
+                      The DM is thinking...
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           )}
 
           {/* Input bar */}
           <div className={`bg-white dark:bg-zinc-900/80 p-2.5 rounded-2xl border border-slate-200 dark:border-zinc-800 flex items-center focus-within:ring-2 focus-within:ring-rose-500/50 focus-within:border-rose-500/50 transition-all ${status === "Generation Complete!"
-              ? 'shadow-[0_-4px_30px_rgba(0,0,0,0.12)] dark:shadow-[0_-4px_30px_rgba(0,0,0,0.5)] backdrop-blur-xl bg-white/95 dark:bg-zinc-900/95'
-              : 'shadow-lg dark:shadow-[0_4px_30px_rgba(0,0,0,0.4)]'
+            ? 'shadow-[0_-4px_30px_rgba(0,0,0,0.12)] dark:shadow-[0_-4px_30px_rgba(0,0,0,0.5)] backdrop-blur-xl bg-white/95 dark:bg-zinc-900/95'
+            : 'shadow-lg dark:shadow-[0_4px_30px_rgba(0,0,0,0.4)]'
             }`}>
             <img src="/favicon.png" alt="" className="w-8 h-8 ml-4 object-contain" />
             <input
               type="text"
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
-              placeholder={status === "Generation Complete!" ? "Chat with your DM... (e.g. Tell me more about the villain)" : "What kind of adventure are you looking for? (e.g. A mystery involving a mimic tavern...)"}
+              placeholder={status === "Generation Complete!" ? "Seek guidance from the oracle..." : "What kind of adventure are you looking for? (e.g. A mystery involving a mimic tavern...)"}
               className="flex-1 bg-transparent px-4 py-4 text-lg focus:outline-none text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-zinc-500"
             />
             <button type="submit" disabled={isLoadingHistory} title="Generate Campaign" className="bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white p-4 rounded-xl transition-all shadow-md shadow-rose-600/20 mr-1 flex items-center justify-center">
@@ -483,6 +592,24 @@ export default function Home() {
             </div>
           )}
         </form>
+
+        {/* Reopen chat control — only when floating chat is closed */}
+        {status === "Generation Complete!" && !isChatboxOpen && (
+          <div className="fixed bottom-4 right-4 z-50">
+            <button
+              type="button"
+              onClick={() => setIsChatboxOpen(true)}
+              className="h-14 pl-2.5 pr-4 rounded-full bg-rose-600 hover:bg-rose-500 shadow-lg border border-rose-700/50 transition-colors flex items-center gap-3"
+              title="Open chat"
+              aria-label="Ask Oracle"
+            >
+              <span className="h-10 w-10 rounded-full bg-white flex items-center justify-center">
+                <img src="/favicon.png" alt="" className="h-6 w-6 object-contain" />
+              </span>
+              <span className="text-sm font-semibold text-white">Ask Oracle</span>
+            </button>
+          </div>
+        )}
 
         {/* Output Content Area */}
         {/* Only show the container if there is actually output or a loading status */}
