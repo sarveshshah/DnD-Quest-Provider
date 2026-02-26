@@ -3,8 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
+    "clean": "rm -rf .next",
+    "dev": "npm run clean && next dev --webpack",
+    "dev:turbo": "npm run clean && next dev --turbopack",
+    "build": "rm -rf .next && next build --webpack",
+    "build:turbo": "rm -rf .next && next build --turbopack",
     "start": "next start",
     "lint": "eslint"
   },

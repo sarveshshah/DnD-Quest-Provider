@@ -281,7 +281,11 @@ async def generate_quest(req: GenerateRequest):
                         else:
                             # User typed a Custom Edit or clicked a Dynamic Suggestion!
                             # We update the state with the new instruction and wipe the plan so it reruns
-                            compiled_graph.update_state(config, {"requirements": req.resume_action, "campaign_plan": None}, as_node="PlannerNode")
+                            await compiled_graph.aupdate_state(
+                                config,
+                                {"requirements": req.resume_action, "campaign_plan": None},
+                                as_node="PlannerNode",
+                            )
                             stream_iterator = compiled_graph.astream_events(None, config=config, version="v2")
                     else:
                         party_data = None

@@ -17,7 +17,6 @@ export default function Home() {
   const [partyDetails, setPartyDetails] = useState<any>(null);
   const [narrative, setNarrative] = useState<any>(null);
   const [threadId, setThreadId] = useState<string | null>(null);
-  const [pendingSidebarThread, setPendingSidebarThread] = useState<{ id?: string; name: string; createdAt: string; phase: "generating" | "syncing" } | null>(null);
   const [charIndex, setCharIndex] = useState(0);
   const [charSlideDirection, setCharSlideDirection] = useState<1 | -1>(1);
   const [groupLightbox, setGroupLightbox] = useState(false);
@@ -28,6 +27,7 @@ export default function Home() {
     const generic = ["suggested adventurers", "the suggested adventurers", "the heroes", "adventurers", "party"];
     return generic.includes(n.toLowerCase().trim()) ? null : n || null;
   })();
+  const useContainedPartyImage = (partyDetails?.characters?.length ?? 0) >= 5;
   const [hitlData, setHitlData] = useState<any>(null);
   const [difficulty, setDifficulty] = useState("Medium");
   const [terrain, setTerrain] = useState("Forest");
@@ -100,7 +100,6 @@ export default function Home() {
 
     if (!id) {
       setThreadId(null);
-      setPendingSidebarThread(null);
       setCampaignPlan(null);
       setPartyDetails(null);
       setNarrative(null);
@@ -214,10 +213,6 @@ export default function Home() {
                 if (eventType === "thread_id") {
                   const parsed = JSON.parse(eventData);
                   setThreadId(parsed.thread_id);
-                  setPendingSidebarThread((prev) => prev
-                    ? { ...prev, id: parsed.thread_id }
-                    : { id: parsed.thread_id, name: "New Campaign", createdAt: new Date().toISOString(), phase: "generating" }
-                  );
                   localStorage.setItem('dnd_active_thread_id', parsed.thread_id);
                 }
                 else if (eventType === "hitl") {
@@ -245,12 +240,10 @@ export default function Home() {
                 else if (eventType === "error") {
                   const errData = JSON.parse(eventData);
                   setStatus(`Error: ${errData.error}`);
-                  setPendingSidebarThread(null);
                   done = true;
                 }
                 else if (eventType === "done") {
                   setStatus("Generation Complete!");
-                  setPendingSidebarThread((prev) => prev ? { ...prev, phase: "syncing" } : prev);
                   done = true;
                 }
               } catch (parseError) {
@@ -263,20 +256,11 @@ export default function Home() {
     } catch (err) {
       console.error("Stream failed:", err);
       setStatus("Error: Connection Failed");
-      setPendingSidebarThread(null);
     }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    const promptLabel = prompt.trim().replace(/\s+/g, " ").slice(0, 48);
-    const pendingName = partyName.trim() || promptLabel || "New Campaign";
-    setPendingSidebarThread({
-      name: pendingName,
-      createdAt: new Date().toISOString(),
-      phase: "generating",
-    });
 
     setStatus("Connecting to AI...");
     setCampaignPlan(null);
@@ -306,7 +290,6 @@ export default function Home() {
     } catch (error) {
       console.error("Failed to start generation:", error);
       setStatus("Error: Could not connect to API");
-      setPendingSidebarThread(null);
     }
   };
 
@@ -374,7 +357,6 @@ export default function Home() {
           handleSelectThread(id);
         }}
         currentThreadId={threadId}
-        pendingThread={pendingSidebarThread}
         isOpen={isSidebarOpen}
         onClose={() => setIsSidebarOpen(false)}
       />
@@ -524,7 +506,7 @@ export default function Home() {
                 {isChatLoading && (
                   <div className="flex justify-start">
                     <div className="bg-slate-100 dark:bg-zinc-800 rounded-2xl rounded-bl-md px-4 py-2.5 text-sm text-slate-500 dark:text-slate-400 animate-pulse">
-                      The DM is thinking...
+                      The Oracle is consulting fate...
                     </div>
                   </div>
                 )}
@@ -751,13 +733,29 @@ export default function Home() {
                       style={{ minHeight: '400px' }}
                       onClick={() => { setGroupLightbox(true); document.body.style.overflow = 'hidden'; }}
                     >
+                      {useContainedPartyImage && (
+                        <img
+                          src={`data:image/jpeg;base64,${campaignPlan.group_image_base64}`}
+                          alt=""
+                          aria-hidden="true"
+                          className="absolute inset-0 w-full h-full object-cover object-center scale-110 blur-2xl opacity-60"
+                        />
+                      )}
                       <img
                         src={`data:image/jpeg;base64,${campaignPlan.group_image_base64}`}
                         alt="The Party"
-                        className="absolute inset-0 w-full h-full object-cover object-center group-hover/party:scale-105 transition-transform duration-700"
+                        className={`absolute inset-0 w-full h-full transition-transform duration-700 ${useContainedPartyImage
+                          ? "object-contain object-center z-[1]"
+                          : "object-cover object-center group-hover/party:scale-105"
+                          }`}
                       />
                       {/* Bottom gradient for text readability */}
-                      <div className="absolute inset-x-0 bottom-0 h-56 bg-gradient-to-t from-black/95 via-black/60 to-transparent pointer-events-none" />
+                      <div
+                        className={`absolute inset-x-0 bottom-0 h-56 pointer-events-none ${useContainedPartyImage
+                          ? "bg-gradient-to-t from-black/65 via-black/30 to-transparent"
+                          : "bg-gradient-to-t from-black/95 via-black/60 to-transparent"
+                          }`}
+                      />
                       <div className="absolute bottom-6 left-6 md:bottom-8 md:left-8 z-10 pointer-events-none w-[85%]">
                         <p className="text-[10px] uppercase tracking-[0.2em] font-black text-violet-300 mb-1" style={{ textShadow: '0 2px 8px rgba(0,0,0,1)' }}>Group Portrait</p>
                         <h3 className="text-2xl md:text-3xl font-black text-white leading-snug" style={{ textShadow: '0 2px 8px rgba(0,0,0,1)' }}>
