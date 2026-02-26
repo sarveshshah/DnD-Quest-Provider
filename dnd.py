@@ -347,6 +347,25 @@ async def party_creation_node(state: CampaignState):
     # Bind the MCP tools to our model outside the SSE context!
     model_with_tools = research_model.bind_tools(mcp_tools) if mcp_tools else research_model
 
+    def build_fallback_character(index: int) -> Character:
+        return Character(
+            name=f"TBD Adventurer {index}",
+            race="Human",
+            class_name="Fighter",
+            level=1,
+            alignment="Neutral",
+            flavor_quote="Ready for whatever the road brings.",
+            physical_description="An eager adventurer of average height and sturdy build, outfitted with practical travel gear.",
+            hp=10,
+            ac=10,
+            ability_scores={"STR": 10, "DEX": 10, "CON": 10, "INT": 10, "WIS": 10, "CHA": 10},
+            weapons=[],
+            spells=[],
+            skills=[],
+            inventory=[],
+            personality_traits=["Cautious", "Reliable"],
+        )
+
     system_prompt = f"""You are a master D&D Party Architect and Rules Expert.
     Campaign World Context: {plan_context}
     Party Name: {"Generate an epic, creative name fitting the lore" if party_name == "Not Provided" else party_name}
@@ -400,9 +419,7 @@ async def party_creation_node(state: CampaignState):
                 final_party.characters = final_party.characters[:party_size]
 
                 while len(final_party.characters) < party_size:
-                    final_party.characters.append(
-                        Character(name=f"TBD Adventurer {len(final_party.characters) + 1}", race="Unknown", class_name="Adventurer", level=1)
-                    )
+                    final_party.characters.append(build_fallback_character(len(final_party.characters) + 1))
                 
                 return {
                     "messages": [AIMessage(content="Generated final PartyDetails JSON.")],
@@ -424,9 +441,7 @@ async def party_creation_node(state: CampaignState):
                     final_party.characters = final_party.characters[:party_size]
 
                     while len(final_party.characters) < party_size:
-                        final_party.characters.append(
-                            Character(name=f"TBD Adventurer {len(final_party.characters) + 1}", race="Unknown", class_name="Adventurer", level=1)
-                        )
+                        final_party.characters.append(build_fallback_character(len(final_party.characters) + 1))
                     
                     return {
                         "messages": [AIMessage(content="Generated final PartyDetails JSON (no tools).")],

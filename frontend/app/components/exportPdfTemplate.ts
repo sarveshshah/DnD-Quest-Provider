@@ -293,6 +293,35 @@ export function buildExportPdfHtml(payload: ExportPayload): string {
         `;
   }).join("");
 
+  const fullSizeImageEntries: Array<{ label: string; src: string }> = [
+    ...(coverImage ? [{ label: "Campaign Cover", src: coverImage }] : []),
+    ...(villainImage ? [{ label: `${stripMarkdown(villainRaw || "Primary Antagonist")} Portrait`, src: villainImage }] : []),
+    ...(groupImage ? [{ label: `${stripMarkdown(rawPartyName || "The Heroes")} Group Portrait`, src: groupImage }] : []),
+    ...(macguffinImage ? [{ label: "Artifact / Reward", src: macguffinImage }] : []),
+    ...characters
+      .map((char: any, index: number) => {
+        const portrait = imageSrcFromBase64(char?.image_base64);
+        if (!portrait) return null;
+        return {
+          label: `${stripMarkdown(char?.name || `Character ${index + 1}`)} Portrait`,
+          src: portrait,
+        };
+      })
+      .filter(Boolean) as Array<{ label: string; src: string }>,
+  ];
+
+  const fullSizeImageSections = fullSizeImageEntries
+    .map((image, index) => `
+      <section class="sheet page-break card-surface full-image-page">
+        <div class="section-title tight"><h2>${index === 0 ? "Full Size Image Appendix" : "Full Size Image"}</h2></div>
+        <div class="full-image-wrap">
+          <img src="${image.src}" alt="${text(image.label)}" />
+        </div>
+        <div class="full-image-caption">${text(image.label)}</div>
+      </section>
+    `)
+    .join("");
+
   return `<!doctype html>
 <html>
 <head>
@@ -557,6 +586,39 @@ export function buildExportPdfHtml(payload: ExportPayload): string {
       padding: 0;
       display: grid;
       gap: 10px;
+    }
+
+    .full-image-page {
+      padding-bottom: 16px;
+    }
+
+    .full-image-wrap {
+      padding: 14px 16px 8px;
+      height: 244mm;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #0f172a;
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      overflow: hidden;
+    }
+
+    .full-image-wrap img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      object-position: center;
+      display: block;
+    }
+
+    .full-image-caption {
+      padding: 10px 16px 0;
+      color: #475569;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .06em;
+      text-transform: uppercase;
     }
 
     .party-roster li {
@@ -1619,6 +1681,7 @@ export function buildExportPdfHtml(payload: ExportPayload): string {
     ` : ""}
 
     ${characterSections}
+    ${fullSizeImageSections}
   </main>
 </body>
 </html>`;

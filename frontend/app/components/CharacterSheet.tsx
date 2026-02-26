@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import ReactMarkdown from "react-markdown";
 
 interface CharacterProps {
@@ -37,7 +38,13 @@ export default function CharacterSheet({ char }: CharacterProps) {
     const level = char.level || 1;
 
     const [lightboxOpen, setLightboxOpen] = useState(false);
+    const [mounted, setMounted] = useState(false);
     const hasImage = char.image_base64 && char.image_base64 !== "[GENERATED IMAGE STORED]";
+
+    useEffect(() => {
+        setMounted(true);
+        return () => setMounted(false);
+    }, []);
 
     // Close lightbox on Escape key + lock body scroll
     useEffect(() => {
@@ -76,10 +83,9 @@ export default function CharacterSheet({ char }: CharacterProps) {
     return (
         <>
             {/* ── LIGHTBOX MODAL ──────────────────────────────────────── */}
-            {lightboxOpen && hasImage && (
+            {mounted && lightboxOpen && hasImage && createPortal(
                 <div
-                    className="fixed left-0 top-0 w-screen z-[9999] bg-black/90 flex items-center justify-center p-4 backdrop-blur-sm cursor-zoom-out"
-                    style={{ height: '100dvh' }}
+                    className="fixed inset-0 z-[9999] bg-black/90 flex items-center justify-center p-4 backdrop-blur-sm cursor-zoom-out"
                     onClick={() => setLightboxOpen(false)}
                 >
                     {/* Close hint */}
@@ -94,7 +100,8 @@ export default function CharacterSheet({ char }: CharacterProps) {
                         className="max-h-[90vh] max-w-[90vw] object-contain rounded-2xl shadow-2xl"
                         onClick={(e) => e.stopPropagation()}
                     />
-                </div>
+                </div>,
+                document.body
             )}
 
             {/* ── CARD ────────────────────────────────────────────────── */}

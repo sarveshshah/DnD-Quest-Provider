@@ -27,7 +27,7 @@ uv run uvicorn main:app --port 8001 --reload &
 API_PID=$!
 
 echo "Starting Next.js Frontend on port 3000..."
-cd frontend && npm run dev &
+cd frontend && npm run dev:clean &
 FRONTEND_PID=$!
 
 # Wait indefinitely until interrupted

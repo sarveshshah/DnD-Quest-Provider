@@ -362,9 +362,9 @@ async def generate_quest(req: GenerateRequest):
                         # Yield HITL options!
                         villain_name = state.values.get("campaign_plan").primary_antagonist if getattr(state.values.get("campaign_plan", None), "primary_antagonist", None) else "the villain"
                         conflict = state.values.get("campaign_plan").core_conflict if getattr(state.values.get("campaign_plan", None), "core_conflict", None) else "the conflict"
-                        
+
                         suggestion_prompt = f"Based on the plan:\nVillain: {villain_name}\nConflict: {conflict}\nSuggest 3 different directions the user might want to take this campaign by altering the plot, villain, or characters."
-                        
+
                         try:
                             suggestions = await research_model.with_structured_output(DynamicHitlActions).ainvoke(suggestion_prompt)
                             hitl_data = suggestions.model_dump()
@@ -374,7 +374,7 @@ async def generate_quest(req: GenerateRequest):
                                 "action_2_label": "🎭 More roleplay", "action_2_payload": "Focus more on diplomacy and NPC interaction.",
                                 "action_3_label": "🐉 Add dragons", "action_3_payload": "Change the villain to an ancient dragon."
                             }
-                        
+
                         yield {"event": "hitl", "data": json.dumps(hitl_data)}
                     else:
                         yield {"event": "done", "data": "Generation Complete!"}
