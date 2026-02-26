@@ -27,10 +27,10 @@ export default function ThemeToggle() {
     return (
         <button
             onClick={toggleTheme}
-            className="fixed top-6 right-8 z-50 p-3 rounded-full bg-slate-200 dark:bg-zinc-800 text-slate-800 dark:text-zinc-200 hover:bg-slate-300 dark:hover:bg-zinc-700 transition-colors shadow-md"
+            className="fixed top-6 right-8 z-50 h-12 w-12 rounded-full bg-slate-200 dark:bg-zinc-800 text-slate-800 dark:text-zinc-200 hover:bg-slate-300 dark:hover:bg-zinc-700 transition-colors shadow-md inline-flex items-center justify-center leading-none"
             title="Toggle Theme"
         >
-            <span className="material-symbols-outlined !text-xl flex items-center justify-center">
+            <span className="material-symbols-outlined !text-xl">
                 {theme === "light" ? "dark_mode" : "light_mode"}
             </span>
         </button>

@@ -325,17 +325,17 @@ export default function Home() {
         <button
           onClick={() => handleSelectThread("")}
           title="New Campaign"
-          className="p-3 rounded-full bg-rose-600 hover:bg-rose-500 border border-rose-700 shadow-md text-white transition-colors"
+          className="h-12 w-12 rounded-full bg-rose-600 hover:bg-rose-500 border border-rose-700 shadow-md text-white transition-colors inline-flex items-center justify-center leading-none"
         >
-          <span className="material-symbols-outlined !text-xl flex items-center justify-center">add</span>
+          <span className="material-symbols-outlined !text-xl">add</span>
         </button>
         {/* Hamburger / Sidebar toggle */}
         <button
           onClick={() => setIsSidebarOpen(true)}
           title="Campaign History"
-          className="p-3 rounded-full bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 shadow-md text-slate-700 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-700 transition-colors"
+          className="h-12 w-12 rounded-full bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 shadow-md text-slate-700 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-700 transition-colors inline-flex items-center justify-center leading-none"
         >
-          <span className="material-symbols-outlined !text-xl flex items-center justify-center">menu</span>
+          <span className="material-symbols-outlined !text-xl">menu</span>
         </button>
       </div>
 
@@ -826,7 +826,6 @@ export default function Home() {
                   campaignPlan={campaignPlan}
                   partyDetails={partyDetails}
                   narrative={narrative}
-                  printableRef={printableContentRef}
                   terrain={terrain}
                   difficulty={difficulty}
                 />
