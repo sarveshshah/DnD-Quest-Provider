@@ -3,6 +3,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 import uvicorn
 import importlib
+import asyncio
+import logging
+from contextlib import suppress
 
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
@@ -379,14 +382,23 @@ async def generate_quest(req: GenerateRequest):
                     else:
                         yield {"event": "done", "data": "Generation Complete!"}
                         
+                except asyncio.CancelledError:
+                    # Normal path when the client closes the SSE connection.
+                    logging.debug("SSE stream cancelled by client; ending event generator")
+                    return
+                except GeneratorExit:
+                    # Generator was closed by the server/runtime after disconnect.
+                    logging.debug("SSE event generator closed")
+                    return
                 except Exception as e:
                     import traceback
                     tb = traceback.format_exc()
                     print(f"CRITICAL FASTAPI ERROR: {tb}")
-                    yield {
-                        "event": "error",
-                        "data": json.dumps({"error": str(e) + "\n\nTraceback:\n" + tb})
-                    }
+                    with suppress(Exception):
+                        yield {
+                            "event": "error",
+                            "data": json.dumps({"error": str(e) + "\n\nTraceback:\n" + tb})
+                        }
                     
     return EventSourceResponse(event_generator())
 

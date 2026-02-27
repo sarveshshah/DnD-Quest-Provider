@@ -617,13 +617,15 @@ async def character_portrait_node(state: CampaignState):
             
             b64 = await generate_image_base64_multimodal(group_prompt, heroes_b64)
             if b64:
-                state.campaign_plan.group_image_base64 = b64
+                if state.campaign_plan:
+                    state.campaign_plan.group_image_base64 = b64
             else:
                 # Fallback to the original math logic if the API rejects the multimodal format
                 print("⚠️ Multimodal stitching failed. Falling back to simple prompt generation without reference images.")
                 b64 = await generate_image_base64(group_prompt)
                 if b64:
-                    state.campaign_plan.group_image_base64 = b64
+                    if state.campaign_plan:
+                        state.campaign_plan.group_image_base64 = b64
 
     # --- Generate Macguffin Image ---
     if state.campaign_plan and state.campaign_plan.loot_concept:
