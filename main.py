@@ -14,7 +14,9 @@ import uuid
 
 from langchain_core.messages import HumanMessage
 import sqlite3
-import os
+import os    
+import datetime
+import uuid as uuid_module
 
 from dnd import campaign_graph as app_graph, mcp_server_session, research_model, DynamicHitlActions, PartyDetails
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
@@ -74,9 +76,7 @@ async def get_threads():
     """)
     rows = cursor.fetchall()
     conn.close()
-    
-    import datetime
-    import uuid as uuid_module
+
     threads = []
     
     def checkpoint_id_to_datetime(checkpoint_id: str) -> str:
@@ -143,6 +143,7 @@ async def get_threads():
 
 @app.patch("/threads/{thread_id}/archive")
 def toggle_archive_thread(thread_id: str):
+    """Archive or unarchive a campaign thread."""
     if not os.path.exists(DB_PATH):
         return {"error": "Database not found"}
         
@@ -166,6 +167,7 @@ def toggle_archive_thread(thread_id: str):
 
 @app.get("/threads/{thread_id}")
 async def get_thread_data(thread_id: str):
+    """Retrieve data for a specific campaign thread."""
     if not os.path.exists(DB_PATH):
         return {"error": "Database not found"}
         
@@ -210,6 +212,7 @@ async def get_thread_data(thread_id: str):
     return history_data
 
 class ChatRequest(BaseModel):
+    """Request body for sending a chat message to an existing campaign thread."""
     message: str
 
 @app.post("/threads/{thread_id}/chat")
@@ -405,6 +408,7 @@ async def generate_quest(req: GenerateRequest):
 
 @app.post("/export/pdf")
 async def export_pdf(req: PdfExportRequest):
+    """Export HTML content as a PDF file."""
     html = (req.html or "").strip()
     if not html:
         raise HTTPException(status_code=400, detail="Missing HTML payload for PDF export")

@@ -233,6 +233,7 @@ def search_wikipedia(query: str) -> str:
 # --- Nodes ---
 def planner_node(state: CampaignState):
     """Node 1: Establishes the facts and structured outline of the campaign."""
+    # randomly select a spark to get unique campaigns
     sparks = [
         "ancient ruins", "political intrigue", "planar invasion", "an undead curse", 
         "a feywild connection", "a dragon cult", "abyssal corruption", "a lost magical artifact", 
@@ -277,7 +278,7 @@ def planner_node(state: CampaignState):
         logging.info(f"Agentic Brainstorming & Research")
 
     except Exception as e:
-        print(f"⚠️ Native Google Search failed ({e}). Falling back to DuckDuckGo and Wikipedia.")
+        print(f"Native Google Search failed ({e}). Falling back to DuckDuckGo and Wikipedia.")
         search_results = "No internet search results."
         wiki_results = "No Wikipedia results."
         
@@ -402,7 +403,6 @@ async def party_creation_node(state: CampaignState):
         just_finished_tools = True
 
     # Generate!
-    # Generate!
     max_retries = 3
     for attempt in range(max_retries):
         try:
@@ -509,7 +509,7 @@ async def generate_image_base64(prompt: str) -> Optional[str]:
                 await asyncio.sleep(4)
                 return base64.b64encode(part.inline_data.data).decode('utf-8')
     except Exception as e:
-        print(f"❌ A wild magic surge disrupted the image generation: {e}")
+        print(f"A wild magic surge disrupted the image generation: {e}")
 
 async def generate_image_base64_multimodal(prompt: str, images_b64: list[str]) -> Optional[str]:
     """Helper function to call Gemini 1.5 Pro (which supports multimodal inference) to redraw/combine images."""
@@ -546,7 +546,7 @@ async def generate_image_base64_multimodal(prompt: str, images_b64: list[str]) -
                 return base64.b64encode(part.inline_data.data).decode('utf-8')
 
     except Exception as e:
-        print(f"❌ A wild magic surge disrupted the magical image generation: {e}")
+        print(f"A wild magic surge disrupted the magical image generation: {e}")
         await asyncio.sleep(4)
 
     return None
@@ -555,14 +555,6 @@ async def character_portrait_node(state: CampaignState):
     """Node 4: Generates portraits for each character using Google Imagen."""
     if not state.party_details or not state.party_details.characters:
         return {}
-
-    prompt_template = """A breathtaking, masterpiece digital painting of a D&D character, official Dungeons and Dragons 5e sourcebook art style, trending on ArtStation. 
-    Subject: A {race} {class_name}. {description}
-    Details: Render them in a dramatic, dynamic pose that reflects their personality and class. They should be wearing high-fantasy armor or clothing appropriate for a {terrain} environment. If applicable, they are wielding: {weapons}, and carrying: {inventory}
-    Aesthetic: High-fidelity fantasy concept art, Unreal Engine 5 render, global illumination, ray tracing, incredibly detailed, best quality, distinct facial features, intense gaze, highly intricate armor, dramatic shadows, cinematic volumetric lighting, 8k resolution, photorealistic textures, vivid colors, painted by Greg Rutkowski and Magali Villeneuve. 
-    Background: A deeply atmospheric and cinematic background depicting a {terrain}. 
-    Critical Rule: NO TEXT, NO WATERMARKS, NO UI ELEMENTS, NO BORDERS.
-    """
 
     # Generate villain portrait first if present
     if state.campaign_plan and state.campaign_plan.villain_statblock:
@@ -621,7 +613,7 @@ async def character_portrait_node(state: CampaignState):
                     state.campaign_plan.group_image_base64 = b64
             else:
                 # Fallback to the original math logic if the API rejects the multimodal format
-                print("⚠️ Multimodal stitching failed. Falling back to simple prompt generation without reference images.")
+                print("Multimodal stitching failed. Falling back to simple prompt generation without reference images.")
                 b64 = await generate_image_base64(group_prompt)
                 if b64:
                     if state.campaign_plan:
