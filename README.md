@@ -1,5 +1,8 @@
 # DnD Quest Provider
 
+<img width="720" height="832" alt="Strange" src="https://github.com/user-attachments/assets/97bd483a-0734-49f6-b3a0-ca00d9fd21f6" />
+
+
 AI-assisted Dungeons & Dragons campaign generator with a full-stack workflow:
 
 - **Frontend**: Next.js app for campaign creation, thread history, chat, and PDF export
