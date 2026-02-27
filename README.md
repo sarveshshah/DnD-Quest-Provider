@@ -1,7 +1,6 @@
 # DnD Quest Provider
 
-<img width="720" height="832" alt="Strange" src="https://github.com/user-attachments/assets/97bd483a-0734-49f6-b3a0-ca00d9fd21f6" />
-
+https://github.com/user-attachments/assets/341e351b-bfa6-49ae-88c2-e71bb06d35c5
 
 AI-assisted Dungeons & Dragons campaign generator with a full-stack workflow:
 
