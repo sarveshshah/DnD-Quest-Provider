@@ -1,0 +1,130 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+:root.dark {
+  --background: #09090b;
+  --foreground: #ededed;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Fix Material Symbols breaking when inheriting base body styles */
+.material-symbols-outlined {
+  font-family: 'Material Symbols Outlined' !important;
+  font-variation-settings:
+    'FILL' 0,
+    'wght' 400,
+    'GRAD' 0,
+    'opsz' 24;
+  font-weight: normal !important;
+  font-style: normal !important;
+  text-transform: none !important;
+  letter-spacing: normal !important;
+  white-space: nowrap !important;
+}
+
+.character-carousel-stage {
+  will-change: transform, opacity;
+}
+
+@keyframes character-slide-next {
+  from {
+    opacity: 0;
+    transform: translate3d(18px, 0, 0) scale(0.995);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes character-slide-prev {
+  from {
+    opacity: 0;
+    transform: translate3d(-18px, 0, 0) scale(0.995);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+.character-carousel-next {
+  animation: character-slide-next 360ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.character-carousel-prev {
+  animation: character-slide-prev 360ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .character-carousel-next,
+  .character-carousel-prev {
+    animation: none;
+  }
+}
+
+@media print {
+  @page {
+    size: A4;
+    margin: 12mm;
+  }
+
+  html,
+  body {
+    background: #fff !important;
+    color: #111827 !important;
+  }
+
+  .print-campaign-root {
+    display: block !important;
+  }
+
+  .print-campaign-root .print-section {
+    break-inside: avoid-page;
+    page-break-inside: avoid;
+    margin-bottom: 12mm;
+  }
+
+  .print-campaign-root .print-page-break {
+    break-before: page;
+    page-break-before: always;
+  }
+
+  .print-campaign-root .print-hide,
+  .print-campaign-root .fixed,
+  .print-campaign-root [class*="cursor-zoom"],
+  .print-campaign-root [class*="group-hover"] {
+    display: none !important;
+  }
+
+  .print-campaign-root img {
+    max-width: 100% !important;
+    break-inside: avoid-page;
+    page-break-inside: avoid;
+  }
+
+  .print-campaign-root .prose {
+    max-width: none !important;
+  }
+}
